@@ -1,12 +1,5 @@
 """
-儲互社雲端決策中心 — 優化完整版
-架構重點：
-  - 雙層密碼 (管理員 / 訪客)
-  - 登入暴力破解防護 (最多 5 次)
-  - 登入畫面真正置中
-  - 錯誤處理細化
-  - 工具函數抽象化，消除重複邏輯
-  - session_state 統一管理
+儲互社雲端決策中心 — 最終完整版
 """
 
 import io
@@ -33,7 +26,7 @@ logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
 # ──────────────────────────────────────────────
-# 頁面基礎設定（必須第一行）
+# 頁面設定（必須是第一個 st 指令）
 # ──────────────────────────────────────────────
 st.set_page_config(
     page_title="儲互社決策分析中心",
@@ -58,68 +51,61 @@ h1,h2,h3,h4,h5,h6,p,span,label,
 div[data-testid="stMetricValue"],
 .stTabs [data-baseweb="tab"] div { color: #1A202C !important; }
 
+/* ── 側邊欄 ── */
 [data-testid="stSidebar"] { background-color: #1E293B !important; }
 [data-testid="stSidebar"] * { color: #E2E8F0 !important; }
 [data-testid="stSidebar"] .stButton > button {
-    background:#334155; color:#E2E8F0 !important;
-    border:1px solid #475569; border-radius:8px;
+    background: #334155; color: #E2E8F0 !important;
+    border: 1px solid #475569; border-radius: 8px;
 }
-[data-testid="stSidebar"] .stButton > button:hover { background:#475569; }
+[data-testid="stSidebar"] .stButton > button:hover { background: #475569; }
 
-/* ── 登入卡片 ── */
-.login-card {
-    background: white; border-radius: 20px;
-    padding: 3rem 2.5rem 2.5rem;
-    box-shadow: 0 20px 60px rgba(0,0,0,.10), 0 4px 16px rgba(0,0,0,.06);
-    border: 1px solid #E2E8F0;
-}
-.login-icon  { font-size:4rem; text-align:center; margin-bottom:.5rem; }
-.login-title { text-align:center; font-size:1.8rem; font-weight:700;
-               color:#1A202C !important; margin-bottom:.25rem; }
-.login-sub   { text-align:center; color:#64748B !important;
-               font-size:.95rem; margin-bottom:1.5rem; }
-.attempt-warning {
-    background:#FEF3C7; border:1px solid #F59E0B; border-radius:10px;
-    padding:.6rem 1rem; color:#92400E !important; font-size:.85rem; margin-bottom:.5rem;
-}
-.locked-box {
-    background:#FEE2E2; border:1px solid #EF4444; border-radius:10px;
-    padding:.8rem 1rem; color:#991B1B !important; font-size:.9rem; text-align:center;
+/* ── 登入卡片：用 st.container(border=True) 的原生容器來做 ── */
+[data-testid="stVerticalBlockBorderWrapper"] {
+    border-radius: 20px !important;
+    border: 1px solid #E2E8F0 !important;
+    box-shadow: 0 20px 60px rgba(0,0,0,.09), 0 4px 16px rgba(0,0,0,.05) !important;
+    background: white !important;
+    padding: .5rem 1.5rem 1.5rem !important;
 }
 
-/* ── 指標卡 ── */
+/* ── 狀態指標卡 ── */
 .stat-card {
-    background:white; border-radius:14px; border:1px solid #E2E8F0;
-    box-shadow:0 2px 8px rgba(0,0,0,.06); margin-bottom:1rem;
-    min-height:180px; display:flex; flex-direction:column; overflow:hidden;
+    background: white; border-radius: 14px; border: 1px solid #E2E8F0;
+    box-shadow: 0 2px 8px rgba(0,0,0,.06); margin-bottom: 1rem;
+    min-height: 180px; display: flex; flex-direction: column; overflow: hidden;
 }
 .card-header {
-    padding:10px 14px; color:#FFF !important; font-weight:700; font-size:.95rem;
-    display:flex; align-items:center; justify-content:center; gap:6px;
+    padding: 10px 14px; color: #FFF !important; font-weight: 700; font-size: .95rem;
+    display: flex; align-items: center; justify-content: center; gap: 6px;
 }
-.hdr-red    { background:linear-gradient(135deg,#EF4444,#991B1B); }
-.hdr-orange { background:linear-gradient(135deg,#F59E0B,#92400E); }
-.hdr-blue   { background:linear-gradient(135deg,#3B82F6,#1E40AF); }
-.hdr-green  { background:linear-gradient(135deg,#10B981,#065F46); }
-.card-body  { padding:10px 12px; overflow-y:auto; flex-grow:1; }
+.hdr-red    { background: linear-gradient(135deg, #EF4444, #991B1B); }
+.hdr-orange { background: linear-gradient(135deg, #F59E0B, #92400E); }
+.hdr-blue   { background: linear-gradient(135deg, #3B82F6, #1E40AF); }
+.hdr-green  { background: linear-gradient(135deg, #10B981, #065F46); }
+.card-body  { padding: 10px 12px; overflow-y: auto; flex-grow: 1; }
 .name-tag {
-    display:inline-block; background:#F1F5F9; color:#1A202C !important;
-    padding:3px 10px; border-radius:8px; margin:3px;
-    font-size:.82rem; border:1px solid #CBD5E1; font-weight:600;
+    display: inline-block; background: #F1F5F9; color: #1A202C !important;
+    padding: 3px 10px; border-radius: 8px; margin: 3px;
+    font-size: .82rem; border: 1px solid #CBD5E1; font-weight: 600;
 }
-.no-target { color:#94A3B8 !important; text-align:center; margin-top:20px; font-size:.85rem; }
+.no-target { color: #94A3B8 !important; text-align: center; margin-top: 20px; font-size: .85rem; }
 
 /* ── 角色徽章 ── */
-.badge-admin  { background:#DCFCE7; color:#166534 !important; border:1px solid #86EFAC;
-                border-radius:8px; padding:6px 10px; font-size:.82rem; text-align:center; }
-.badge-viewer { background:#FEF3C7; color:#92400E !important; border:1px solid #FCD34D;
-                border-radius:8px; padding:6px 10px; font-size:.82rem; text-align:center; }
+.badge-admin {
+    background: #DCFCE7; color: #166534 !important; border: 1px solid #86EFAC;
+    border-radius: 8px; padding: 6px 10px; font-size: .82rem; text-align: center;
+}
+.badge-viewer {
+    background: #FEF3C7; color: #92400E !important; border: 1px solid #FCD34D;
+    border-radius: 8px; padding: 6px 10px; font-size: .82rem; text-align: center;
+}
 
-#MainMenu {visibility:hidden;} footer {visibility:hidden;}
-.stTabs [data-baseweb="tab"] { font-size:.95rem; font-weight:600; padding:10px 14px; }
+#MainMenu { visibility: hidden; }
+footer    { visibility: hidden; }
+.stTabs [data-baseweb="tab"] { font-size: .95rem; font-weight: 600; padding: 10px 14px; }
 </style>
 """, unsafe_allow_html=True)
-
 
 # ──────────────────────────────────────────────
 # Session State 統一初始化
@@ -156,36 +142,53 @@ def handle_login():
 
 
 def render_login():
+    """登入頁：三欄置中 + st.container(border=True) 卡片"""
     st.markdown("<div style='margin-top:6vh'></div>", unsafe_allow_html=True)
 
     _, center, _ = st.columns([1, 1.6, 1])
     with center:
-        st.markdown('<div class="login-card">', unsafe_allow_html=True)
-        st.markdown('<div class="login-icon">🏦</div>', unsafe_allow_html=True)
-        st.markdown('<div class="login-title">儲互社雲端決策中心</div>', unsafe_allow_html=True)
-        st.markdown('<div class="login-sub">請輸入系統存取密碼以繼續</div>', unsafe_allow_html=True)
+        with st.container(border=True):
 
-        if st.session_state["locked"]:
-            st.markdown(
-                f'<div class="locked-box">🔒 嘗試次數超過 {MAX_LOGIN_ATTEMPTS} 次，'
-                f'請重新整理頁面後再試。</div>',
-                unsafe_allow_html=True,
-            )
-        else:
-            attempts  = st.session_state["login_attempts"]
-            remaining = MAX_LOGIN_ATTEMPTS - attempts
-            if attempts > 0:
-                st.markdown(
-                    f'<div class="attempt-warning">⚠️ 密碼錯誤，剩餘嘗試次數：{remaining} 次</div>',
-                    unsafe_allow_html=True,
+            # ── 標題區（純 HTML，不含任何 widget）──
+            st.markdown("""
+                <div style="text-align:center; padding:1.5rem 0 .8rem;">
+                    <div style="font-size:3.8rem; line-height:1;">🏦</div>
+                    <h2 style="font-size:1.75rem; font-weight:700;
+                               color:#1A202C; margin:.4rem 0 .2rem;">
+                        儲互社雲端決策中心
+                    </h2>
+                    <p style="color:#64748B; font-size:.92rem; margin:0;">
+                        請輸入系統存取密碼以繼續
+                    </p>
+                </div>
+            """, unsafe_allow_html=True)
+
+            # ── 互動區（Streamlit widget，放在 container 內才能正確渲染）──
+            if st.session_state["locked"]:
+                st.error(
+                    f"🔒 嘗試次數超過 {MAX_LOGIN_ATTEMPTS} 次，"
+                    "請重新整理頁面後再試。",
+                    icon=None,
                 )
-            st.text_input(
-                "密碼", type="password", key="pwd_input",
-                label_visibility="collapsed", placeholder="請輸入密碼",
-            )
-            st.button("🔓 登入系統", on_click=handle_login, use_container_width=True)
+            else:
+                attempts  = st.session_state["login_attempts"]
+                remaining = MAX_LOGIN_ATTEMPTS - attempts
+                if attempts > 0:
+                    st.warning(f"⚠️ 密碼錯誤，剩餘嘗試次數：{remaining} 次")
 
-        st.markdown('</div>', unsafe_allow_html=True)
+                st.text_input(
+                    "密碼", type="password", key="pwd_input",
+                    label_visibility="collapsed",
+                    placeholder="請輸入密碼",
+                    disabled=st.session_state["locked"],
+                )
+                st.button(
+                    "🔓 登入系統",
+                    on_click=handle_login,
+                    use_container_width=True,
+                    disabled=st.session_state["locked"],
+                )
+
     st.stop()
 
 
@@ -204,7 +207,10 @@ IS_ADMIN = (st.session_state["role"] == "admin")
 # ──────────────────────────────────────────────
 @st.cache_resource
 def init_supabase() -> Client:
-    return create_client(st.secrets["supabase"]["url"], st.secrets["supabase"]["key"])
+    return create_client(
+        st.secrets["supabase"]["url"],
+        st.secrets["supabase"]["key"],
+    )
 
 supabase = init_supabase()
 
@@ -249,7 +255,9 @@ def stat_card(title: str, names: list, hdr_cls: str):
 def apply_chart_style(fig, title="", is_pct=True):
     kw = dict(yaxis_tickformat=".1%") if is_pct else {}
     fig.update_layout(
-        title=title, plot_bgcolor="white", hovermode="x unified",
+        title=title,
+        plot_bgcolor="white",
+        hovermode="x unified",
         legend=dict(orientation="h", yanchor="top", y=-0.2, xanchor="center", x=0.5),
         margin=dict(l=10, r=20, t=40, b=10),
         **kw,
@@ -264,26 +272,26 @@ def apply_chart_style(fig, title="", is_pct=True):
 # ──────────────────────────────────────────────
 STATUS = {
     "high_risk": "🚨 高風險列管",
-    "liquidity":  "⚠️ 流動性緊繃",
-    "idle":       "💤 資金閒置",
-    "stable":     "✅ 穩健模範",
-    "normal":     "📊 一般狀態",
+    "liquidity": "⚠️ 流動性緊繃",
+    "idle":      "💤 資金閒置",
+    "stable":    "✅ 穩健模範",
+    "normal":    "📊 一般狀態",
 }
 COLOR_MAP = {
     STATUS["high_risk"]: "#EF4444",
-    STATUS["liquidity"]:  "#F59E0B",
-    STATUS["idle"]:       "#3B82F6",
-    STATUS["stable"]:     "#10B981",
-    STATUS["normal"]:     "#94A3B8",
+    STATUS["liquidity"]: "#F59E0B",
+    STATUS["idle"]:      "#3B82F6",
+    STATUS["stable"]:    "#10B981",
+    STATUS["normal"]:    "#94A3B8",
 }
 
 
-def classify(eOverdue, sOverdue, eLoan, shrGrowth, memGrowth) -> str:
-    if eOverdue > sOverdue and eOverdue > 0.1:           return STATUS["high_risk"]
-    if eLoan > 0.9 and shrGrowth < 0:                   return STATUS["liquidity"]
-    if eLoan < 0.3 and eOverdue < 0.02:                 return STATUS["idle"]
-    if memGrowth > 0 and shrGrowth > 0 \
-       and 0.4 < eLoan < 0.8 and eOverdue < 0.02:       return STATUS["stable"]
+def classify(eOvd, sOvd, eLoan, shrG, memG) -> str:
+    if eOvd > sOvd and eOvd > 0.1:                          return STATUS["high_risk"]
+    if eLoan > 0.9 and shrG < 0:                            return STATUS["liquidity"]
+    if eLoan < 0.3 and eOvd < 0.02:                         return STATUS["idle"]
+    if memG > 0 and shrG > 0 and 0.4 < eLoan < 0.8 \
+       and eOvd < 0.02:                                      return STATUS["stable"]
     return STATUS["normal"]
 
 
@@ -334,23 +342,23 @@ def process_excel(file_bytes: bytes):
         ls   = df_l[df_l["社號"] == s_no]
         name = ms["社名"].iloc[0]
 
-        eM, sM     = latest(ms, "社員數"),  earliest_before(ms, "社員數")
-        eS, sS     = latest(ms, "股金"),    earliest_before(ms, "股金")
-        eOvd       = latest(ls, "逾放比")   if not ls.empty else 0.0
-        sOvd       = float(ls.iloc[0]["逾放比"]) if not ls.empty else 0.0
-        eLoan      = latest(ms, "貸放比")
-        memG       = safe_div(eM - sM, sM)
-        shrG       = safe_div(eS - sS, sS)
+        eM, sM = latest(ms, "社員數"), earliest_before(ms, "社員數")
+        eS, sS = latest(ms, "股金"),   earliest_before(ms, "股金")
+        eOvd   = latest(ls, "逾放比") if not ls.empty else 0.0
+        sOvd   = float(ls.iloc[0]["逾放比"]) if not ls.empty else 0.0
+        eLoan  = latest(ms, "貸放比")
+        memG   = safe_div(eM - sM, sM)
+        shrG   = safe_div(eS - sS, sS)
 
         rows.append({
             "社號": s_no, "社名": name,
-            "診斷狀態":      classify(eOvd, sOvd, eLoan, shrG, memG),
-            "現有社員":      eM,    "社員成長率(12M)": memG,
-            "現有股金":      eS,    "股金成長率(12M)": shrG,
-            "貸放比":        eLoan, "儲蓄率":          latest(ms, "儲蓄率"),
-            "逾放比(初)":   sOvd,  "逾放比(末)":      eOvd,
-            "提撥率":        latest(ls, "提撥率") if not ls.empty else 0.0,
-            "收支比":        latest(ls, "收支比") if not ls.empty else 0.0,
+            "診斷狀態":     classify(eOvd, sOvd, eLoan, shrG, memG),
+            "現有社員":     eM,    "社員成長率(12M)": memG,
+            "現有股金":     eS,    "股金成長率(12M)": shrG,
+            "貸放比":       eLoan, "儲蓄率":          latest(ms, "儲蓄率"),
+            "逾放比(初)":  sOvd,  "逾放比(末)":      eOvd,
+            "提撥率":       latest(ls, "提撥率") if not ls.empty else 0.0,
+            "收支比":       latest(ls, "收支比") if not ls.empty else 0.0,
             "_sM": sM, "_sS": sS,
         })
 
@@ -362,8 +370,8 @@ def process_excel(file_bytes: bytes):
 # ──────────────────────────────────────────────
 with st.sidebar:
     st.markdown("## ⚙️ 決策數據中心")
-    badge_cls  = "badge-admin"  if IS_ADMIN else "badge-viewer"
-    badge_txt  = "🔑 管理員模式（可上傳）" if IS_ADMIN else "👁️ 訪客模式（僅限瀏覽）"
+    badge_cls = "badge-admin"  if IS_ADMIN else "badge-viewer"
+    badge_txt = "🔑 管理員模式（可上傳）" if IS_ADMIN else "👁️ 訪客模式（僅限瀏覽）"
     st.markdown(f'<div class="{badge_cls}">{badge_txt}</div>', unsafe_allow_html=True)
     st.markdown("---")
     if st.button("🚪 登出系統", use_container_width=True):
@@ -376,14 +384,14 @@ with st.sidebar:
 # ──────────────────────────────────────────────
 # 資料載入
 # ──────────────────────────────────────────────
-data_loaded = False
-data = df_m = df_l = None
-raw_bytes = None
+data_loaded           = False
+data = df_m = df_l   = None
+raw_bytes             = None
 
-query_params = st.query_params
-shared_file  = query_params.get("file")
+shared_file = st.query_params.get("file")
 
 if shared_file:
+    # 所有角色皆可透過連結載入
     with st.sidebar:
         st.info("📁 正在從雲端載入...")
     try:
@@ -398,8 +406,10 @@ if shared_file:
         logger.error("Cloud load failed:\n%s", traceback.format_exc())
 
 elif IS_ADMIN:
+    # 管理員：顯示上傳介面
     with st.sidebar:
         uploaded = st.file_uploader("📂 匯入 Excel 檔案", type=["xlsx"])
+
     if uploaded:
         try:
             raw_bytes = uploaded.getvalue()
@@ -439,20 +449,23 @@ elif IS_ADMIN:
             logger.error("Excel parse failed:\n%s", traceback.format_exc())
 
 else:
+    # 訪客：隱藏上傳
     with st.sidebar:
         st.info("📎 請使用管理員提供的分享連結載入報表資料。")
 
 
 # ──────────────────────────────────────────────
-# 主畫面：尚未載入
+# 尚未載入時的歡迎畫面
 # ──────────────────────────────────────────────
 if not data_loaded:
     st.markdown("""
-        <div style="text-align:center;margin-top:12vh;color:#64748B;">
+        <div style="text-align:center; margin-top:12vh; color:#64748B;">
             <div style="font-size:4rem;">🏦</div>
-            <h1 style="color:#1A202C;font-size:2rem;margin:.5rem 0;">儲互社雲端決策中心</h1>
+            <h1 style="color:#1A202C; font-size:2rem; margin:.5rem 0;">
+                儲互社雲端決策中心
+            </h1>
             <p style="font-size:1rem;">
-                管理員請於左側上傳 Excel 檔案 &nbsp;／&nbsp; 訪客請使用分享連結直接載入。
+                管理員請於左側上傳 Excel 檔案　／　訪客請使用分享連結直接載入。
             </p>
         </div>
     """, unsafe_allow_html=True)
@@ -460,14 +473,16 @@ if not data_loaded:
 
 
 # ──────────────────────────────────────────────
-# Tabs
+# 主畫面 Tabs
 # ──────────────────────────────────────────────
 tab_ov, tab_mx, tab_hc, tab_rp, tab_tr = st.tabs([
     "📊 經營總覽", "🎯 全域風險矩陣", "🏥 個社健檢", "📋 報表匯出", "📈 趨勢追蹤",
 ])
 
 
-# ════════════ Tab 1：經營總覽 ════════════
+# ════════════════════════════════════
+# Tab 1 ： 經營總覽
+# ════════════════════════════════════
 with tab_ov:
     st.markdown("### 🏆 區會總體指標")
     total_mem = data["現有社員"].sum()
@@ -476,23 +491,27 @@ with tab_ov:
     prev_shr  = data["_sS"].sum()
 
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("全體社員總數",  f"{int(total_mem):,}",
+    c1.metric("全體社員總數",   f"{int(total_mem):,}",
               f"{safe_div(total_mem - prev_mem, prev_mem):.2%}")
-    c2.metric("全體股金總額",  f"${total_shr/1e8:.2f} 億",
+    c2.metric("全體股金總額",   f"${total_shr / 1e8:.2f} 億",
               f"{safe_div(total_shr - prev_shr, prev_shr):.2%}")
     c3.metric("全區平均收支比", f"{data['收支比'].mean():.2%}")
     c4.metric("全區平均逾放比", f"{data['逾放比(末)'].mean():.2%}")
 
     st.markdown("### 🏷️ 狀態雷達監控")
+
     def names_of(key): return data[data["診斷狀態"] == STATUS[key]]["社名"].tolist()
+
     sc1, sc2, sc3, sc4 = st.columns(4)
     with sc1: stat_card("🚨 高風險列管", names_of("high_risk"), "hdr-red")
-    with sc2: stat_card("⚠️ 流動性緊繃", names_of("liquidity"),  "hdr-orange")
-    with sc3: stat_card("💤 資金閒置",   names_of("idle"),       "hdr-blue")
-    with sc4: stat_card("✅ 穩健模範",   names_of("stable"),     "hdr-green")
+    with sc2: stat_card("⚠️ 流動性緊繃", names_of("liquidity"), "hdr-orange")
+    with sc3: stat_card("💤 資金閒置",   names_of("idle"),      "hdr-blue")
+    with sc4: stat_card("✅ 穩健模範",   names_of("stable"),    "hdr-green")
 
 
-# ════════════ Tab 2：全域風險矩陣 ════════════
+# ════════════════════════════════════
+# Tab 2 ： 全域風險矩陣
+# ════════════════════════════════════
 with tab_mx:
     st.markdown("### 🎯 全區風險分佈矩陣")
     st.caption("氣泡大小 = 社員數。十字線為閾值邊界，協助快速定位高風險社別。")
@@ -506,11 +525,15 @@ with tab_mx:
     fig.add_vline(x=0.90, line_dash="dot", line_color="#F59E0B", annotation_text="緊繃 90%")
     fig.add_vline(x=0.30, line_dash="dot", line_color="#3B82F6", annotation_text="閒置 30%")
     apply_chart_style(fig)
-    fig.update_layout(legend=dict(orientation="h", yanchor="top", y=-0.12, xanchor="center", x=0.5))
+    fig.update_layout(
+        legend=dict(orientation="h", yanchor="top", y=-0.12, xanchor="center", x=0.5)
+    )
     st.plotly_chart(fig, use_container_width=True)
 
 
-# ════════════ Tab 3：個社健檢 ════════════
+# ════════════════════════════════════
+# Tab 3 ： 個社健檢
+# ════════════════════════════════════
 with tab_hc:
     st.markdown("### 🏥 單一儲互社健檢報告")
     target = st.selectbox("請選擇要診斷的儲互社：", data["社名"].unique())
@@ -525,7 +548,7 @@ with tab_hc:
         LABELS = ["貸放比", "儲蓄率", "逾放比(末)", "收支比", "社員成長率",       "股金成長率"]
 
         fig_bar = go.Figure([
-            go.Bar(name=target,   x=LABELS, y=[row[k]  for k in KEYS], marker_color="#3B82F6"),
+            go.Bar(name=target,    x=LABELS, y=[row[k]  for k in KEYS], marker_color="#3B82F6"),
             go.Bar(name="全區平均", x=LABELS, y=[gavg[k] for k in KEYS], marker_color="#CBD5E1"),
         ])
         apply_chart_style(fig_bar, title="關鍵指標 vs 全區基準")
@@ -548,21 +571,23 @@ with tab_hc:
             kv_cols[i % 4].metric(lbl, val)
 
 
-# ════════════ Tab 4：報表匯出 ════════════
+# ════════════════════════════════════
+# Tab 4 ： 報表匯出
+# ════════════════════════════════════
 with tab_rp:
     st.markdown("### 📋 完整診斷數據總表")
     display_df = data.drop(columns=["_sM", "_sS"])
     fmt = {
         "社員成長率(12M)": "{:.2%}", "股金成長率(12M)": "{:.2%}",
-        "貸放比":  "{:.1%}",  "儲蓄率":    "{:.2%}",
+        "貸放比":    "{:.1%}", "儲蓄率":    "{:.2%}",
         "逾放比(初)": "{:.2%}", "逾放比(末)": "{:.2%}",
-        "提撥率":  "{:.2%}",  "收支比":    "{:.2%}",
-        "現有社員": "{:,}",   "現有股金":  "${:,.0f}",
+        "提撥率":    "{:.2%}", "收支比":    "{:.2%}",
+        "現有社員":  "{:,}",  "現有股金":  "${:,.0f}",
     }
 
     def row_highlight(row):
-        is_hr = "高風險" in str(row.get("診斷狀態", ""))
-        s = "background-color:#FEF2F2;color:#991B1B;font-weight:bold;" if is_hr else ""
+        s = ("background-color:#FEF2F2;color:#991B1B;font-weight:bold;"
+             if "高風險" in str(row.get("診斷狀態", "")) else "")
         return [s] * len(row)
 
     st.dataframe(
@@ -572,11 +597,14 @@ with tab_rp:
     st.download_button(
         "📥 匯出完整診斷報告 (CSV)",
         display_df.to_csv(index=False).encode("utf-8-sig"),
-        "診斷報告.csv", "text/csv", use_container_width=True,
+        "診斷報告.csv", "text/csv",
+        use_container_width=True,
     )
 
 
-# ════════════ Tab 5：趨勢追蹤 ════════════
+# ════════════════════════════════════
+# Tab 5 ： 趨勢追蹤
+# ════════════════════════════════════
 with tab_tr:
     st.markdown("### 📈 歷史趨勢對比")
 
@@ -587,7 +615,7 @@ with tab_tr:
     )
     avg_df         = df_all.groupby("年月").mean(numeric_only=True).reset_index()
     avg_df["社名"] = "—— 區域基準 ——"
-    BASELINE_COLOR = {"—— 區域基準 ——": "#1E293B"}
+    BASELINE       = {"—— 區域基準 ——": "#1E293B"}
 
     show_avg = st.checkbox("顯示區域基準線（黑色虛線）", value=True)
     selected = st.multiselect(
@@ -603,8 +631,10 @@ with tab_tr:
         plot = pd.concat([base, avg_df]) if show_avg else base
 
         def trend_chart(col, title, is_pct=True):
-            fig = px.line(plot, x="年月", y=col, color="社名",
-                          title=title, markers=True, color_discrete_map=BASELINE_COLOR)
+            fig = px.line(
+                plot, x="年月", y=col, color="社名",
+                title=title, markers=True, color_discrete_map=BASELINE,
+            )
             fig.for_each_trace(
                 lambda t: t.update(line=dict(dash="dash", width=2.5))
                 if t.name == "—— 區域基準 ——" else None
@@ -613,7 +643,7 @@ with tab_tr:
             st.plotly_chart(fig, use_container_width=True)
 
         r1, r2 = st.columns(2)
-        with r1: trend_chart("社員數", "👥 社員數趨勢",  is_pct=False)
+        with r1: trend_chart("社員數", "👥 社員數趨勢", is_pct=False)
         with r2: trend_chart("貸放比", "💰 貸放比趨勢")
         r3, r4 = st.columns(2)
         with r3: trend_chart("儲蓄率", "🏦 儲蓄率趨勢")
