@@ -1,443 +1,622 @@
-import streamlit as st
-import pandas as pd
-import numpy as np
-import plotly.express as px
-import plotly.graph_objects as go
+"""
+儲互社雲端決策中心 — 優化完整版
+架構重點：
+  - 雙層密碼 (管理員 / 訪客)
+  - 登入暴力破解防護 (最多 5 次)
+  - 登入畫面真正置中
+  - 錯誤處理細化
+  - 工具函數抽象化，消除重複邏輯
+  - session_state 統一管理
+"""
+
 import io
 import uuid
+import logging
+import traceback
+
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+import streamlit as st
 from supabase import create_client, Client
 
-# ==========================================
-# 🛠️ 輔助工具函數
-# ==========================================
-def safe_div(numerator, denominator):
-    if pd.isna(denominator) or denominator == 0:
-        return 0
-    result = numerator / denominator
-    return result if not pd.isna(result) else 0
+# ──────────────────────────────────────────────
+# 全域常數
+# ──────────────────────────────────────────────
+BUCKET_NAME        = "excel-reports"
+APP_BASE_URL       = "https://8asdxeziyl2ozfrmkpzof3.streamlit.app"
+MAX_LOGIN_ATTEMPTS = 5
+SHEET_MAIN         = "社務及資金運用情形"
+SHEET_LOAN         = "放款及逾期放款"
 
-# ==========================================
-# 1. 頁面基礎設定
-# ==========================================
-st.set_page_config(page_title="儲互社決策分析中心", layout="wide", page_icon="🏦")
+logging.basicConfig(level=logging.WARNING)
+logger = logging.getLogger(__name__)
 
-# ==========================================
-# 🛑 雙層密碼登入系統
-# ==========================================
-def check_password():
-    """
-    比對輸入密碼：
-      - 符合 admin_password  → 管理員（可上傳）
-      - 符合 viewer_password → 訪客（只能瀏覽）
-      - 否則               → 拒絕登入
-    """
-    entered = st.session_state["password_input"]
-    admin_pw  = str(st.secrets["admin_password"])
-    viewer_pw = str(st.secrets["viewer_password"])
+# ──────────────────────────────────────────────
+# 頁面基礎設定（必須第一行）
+# ──────────────────────────────────────────────
+st.set_page_config(
+    page_title="儲互社決策分析中心",
+    layout="wide",
+    page_icon="🏦",
+    initial_sidebar_state="collapsed",
+)
+
+# ──────────────────────────────────────────────
+# 全域 CSS
+# ──────────────────────────────────────────────
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;600;700&display=swap');
+
+html, body, [data-testid="stAppViewContainer"] {
+    font-family: 'Noto Sans TC', sans-serif !important;
+    background-color: #F0F4F8 !important;
+    color: #1A202C !important;
+}
+h1,h2,h3,h4,h5,h6,p,span,label,
+div[data-testid="stMetricValue"],
+.stTabs [data-baseweb="tab"] div { color: #1A202C !important; }
+
+[data-testid="stSidebar"] { background-color: #1E293B !important; }
+[data-testid="stSidebar"] * { color: #E2E8F0 !important; }
+[data-testid="stSidebar"] .stButton > button {
+    background:#334155; color:#E2E8F0 !important;
+    border:1px solid #475569; border-radius:8px;
+}
+[data-testid="stSidebar"] .stButton > button:hover { background:#475569; }
+
+/* ── 登入卡片 ── */
+.login-card {
+    background: white; border-radius: 20px;
+    padding: 3rem 2.5rem 2.5rem;
+    box-shadow: 0 20px 60px rgba(0,0,0,.10), 0 4px 16px rgba(0,0,0,.06);
+    border: 1px solid #E2E8F0;
+}
+.login-icon  { font-size:4rem; text-align:center; margin-bottom:.5rem; }
+.login-title { text-align:center; font-size:1.8rem; font-weight:700;
+               color:#1A202C !important; margin-bottom:.25rem; }
+.login-sub   { text-align:center; color:#64748B !important;
+               font-size:.95rem; margin-bottom:1.5rem; }
+.attempt-warning {
+    background:#FEF3C7; border:1px solid #F59E0B; border-radius:10px;
+    padding:.6rem 1rem; color:#92400E !important; font-size:.85rem; margin-bottom:.5rem;
+}
+.locked-box {
+    background:#FEE2E2; border:1px solid #EF4444; border-radius:10px;
+    padding:.8rem 1rem; color:#991B1B !important; font-size:.9rem; text-align:center;
+}
+
+/* ── 指標卡 ── */
+.stat-card {
+    background:white; border-radius:14px; border:1px solid #E2E8F0;
+    box-shadow:0 2px 8px rgba(0,0,0,.06); margin-bottom:1rem;
+    min-height:180px; display:flex; flex-direction:column; overflow:hidden;
+}
+.card-header {
+    padding:10px 14px; color:#FFF !important; font-weight:700; font-size:.95rem;
+    display:flex; align-items:center; justify-content:center; gap:6px;
+}
+.hdr-red    { background:linear-gradient(135deg,#EF4444,#991B1B); }
+.hdr-orange { background:linear-gradient(135deg,#F59E0B,#92400E); }
+.hdr-blue   { background:linear-gradient(135deg,#3B82F6,#1E40AF); }
+.hdr-green  { background:linear-gradient(135deg,#10B981,#065F46); }
+.card-body  { padding:10px 12px; overflow-y:auto; flex-grow:1; }
+.name-tag {
+    display:inline-block; background:#F1F5F9; color:#1A202C !important;
+    padding:3px 10px; border-radius:8px; margin:3px;
+    font-size:.82rem; border:1px solid #CBD5E1; font-weight:600;
+}
+.no-target { color:#94A3B8 !important; text-align:center; margin-top:20px; font-size:.85rem; }
+
+/* ── 角色徽章 ── */
+.badge-admin  { background:#DCFCE7; color:#166534 !important; border:1px solid #86EFAC;
+                border-radius:8px; padding:6px 10px; font-size:.82rem; text-align:center; }
+.badge-viewer { background:#FEF3C7; color:#92400E !important; border:1px solid #FCD34D;
+                border-radius:8px; padding:6px 10px; font-size:.82rem; text-align:center; }
+
+#MainMenu {visibility:hidden;} footer {visibility:hidden;}
+.stTabs [data-baseweb="tab"] { font-size:.95rem; font-weight:600; padding:10px 14px; }
+</style>
+""", unsafe_allow_html=True)
+
+
+# ──────────────────────────────────────────────
+# Session State 統一初始化
+# ──────────────────────────────────────────────
+_DEFAULTS = {
+    "logged_in":      False,
+    "role":           None,   # "admin" | "viewer"
+    "login_attempts": 0,
+    "locked":         False,
+}
+for _k, _v in _DEFAULTS.items():
+    if _k not in st.session_state:
+        st.session_state[_k] = _v
+
+
+# ──────────────────────────────────────────────
+# 🔐 登入邏輯
+# ──────────────────────────────────────────────
+def handle_login():
+    if st.session_state["locked"]:
+        return
+    entered   = st.session_state.get("pwd_input", "").strip()
+    admin_pw  = str(st.secrets.get("admin_password",  ""))
+    viewer_pw = str(st.secrets.get("viewer_password", ""))
 
     if entered == admin_pw:
-        st.session_state["logged_in"] = True
-        st.session_state["role"] = "admin"       # 有上傳權限
+        st.session_state.update(logged_in=True, role="admin",  login_attempts=0)
     elif entered == viewer_pw:
-        st.session_state["logged_in"] = True
-        st.session_state["role"] = "viewer"      # 僅瀏覽
+        st.session_state.update(logged_in=True, role="viewer", login_attempts=0)
     else:
-        st.session_state["logged_in"] = False
-        st.session_state["role"] = None
-        st.error("❌ 密碼錯誤，請重新輸入！")
+        st.session_state["login_attempts"] += 1
+        if st.session_state["login_attempts"] >= MAX_LOGIN_ATTEMPTS:
+            st.session_state["locked"] = True
 
-# 初始化登入狀態
-if "logged_in" not in st.session_state:
-    st.session_state["logged_in"] = False
-if "role" not in st.session_state:
-    st.session_state["role"] = None
 
-# 登入畫面
-if not st.session_state["logged_in"]:
-    st.markdown("""
-        <div style="text-align: center; margin-top: 8vh; margin-bottom: 2rem;">
-            <h1 style="font-size: clamp(3rem, 8vw, 4rem);">🏦</h1>
-            <h1 style="color: #1E293B; font-size: clamp(1.8rem, 5vw, 2.5rem);">儲互社雲端決策中心</h1>
-            <p style="color: #64748B; font-size: clamp(0.9rem, 3vw, 1.2rem);">請輸入系統存取密碼以繼續</p>
-        </div>
-    """, unsafe_allow_html=True)
+def render_login():
+    st.markdown("<div style='margin-top:6vh'></div>", unsafe_allow_html=True)
 
-    st.text_input("密碼", type="password", key="password_input",
-                  label_visibility="collapsed", placeholder="請輸入密碼")
-    st.button("🔓 登入系統", on_click=check_password, use_container_width=True)
+    _, center, _ = st.columns([1, 1.6, 1])
+    with center:
+        st.markdown('<div class="login-card">', unsafe_allow_html=True)
+        st.markdown('<div class="login-icon">🏦</div>', unsafe_allow_html=True)
+        st.markdown('<div class="login-title">儲互社雲端決策中心</div>', unsafe_allow_html=True)
+        st.markdown('<div class="login-sub">請輸入系統存取密碼以繼續</div>', unsafe_allow_html=True)
+
+        if st.session_state["locked"]:
+            st.markdown(
+                f'<div class="locked-box">🔒 嘗試次數超過 {MAX_LOGIN_ATTEMPTS} 次，'
+                f'請重新整理頁面後再試。</div>',
+                unsafe_allow_html=True,
+            )
+        else:
+            attempts  = st.session_state["login_attempts"]
+            remaining = MAX_LOGIN_ATTEMPTS - attempts
+            if attempts > 0:
+                st.markdown(
+                    f'<div class="attempt-warning">⚠️ 密碼錯誤，剩餘嘗試次數：{remaining} 次</div>',
+                    unsafe_allow_html=True,
+                )
+            st.text_input(
+                "密碼", type="password", key="pwd_input",
+                label_visibility="collapsed", placeholder="請輸入密碼",
+            )
+            st.button("🔓 登入系統", on_click=handle_login, use_container_width=True)
+
+        st.markdown('</div>', unsafe_allow_html=True)
     st.stop()
 
-# ==========================================
-# 🟢 核心程式碼（登入後執行）
-# ==========================================
+
+if not st.session_state["logged_in"]:
+    render_login()
+
+
+# ──────────────────────────────────────────────
+# 登入後常數
+# ──────────────────────────────────────────────
 IS_ADMIN = (st.session_state["role"] == "admin")
 
-# --- 初始化 Supabase 連線 ---
+
+# ──────────────────────────────────────────────
+# Supabase
+# ──────────────────────────────────────────────
 @st.cache_resource
 def init_supabase() -> Client:
-    url = st.secrets["supabase"]["url"]
-    key = st.secrets["supabase"]["key"]
-    return create_client(url, key)
+    return create_client(st.secrets["supabase"]["url"], st.secrets["supabase"]["key"])
 
 supabase = init_supabase()
-BUCKET_NAME = "excel-reports"
 
-# --- 自定義 CSS ---
-st.markdown("""
-    <style>
-    [data-testid="stAppViewContainer"] {
-        background-color: #F8FAFC !important;
-        color: #1E293B !important;
-    }
-    h1, h2, h3, h4, h5, h6, p, span, label,
-    div[data-testid="stMetricValue"], .stTabs [data-baseweb="tab"] div {
-        color: #1E293B !important;
-    }
-    .stat-card {
-        background: white; border-radius: 12px; border: 1px solid #E2E8F0;
-        box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); margin-bottom: 1rem;
-        min-height: 180px; height: auto;
-        display: flex; flex-direction: column; overflow: hidden;
-    }
-    .card-header {
-        padding: 10px; color: #FFFFFF !important; font-weight: 700; font-size: 1rem;
-        text-align: center; display: flex; align-items: center;
-        justify-content: center; gap: 8px;
-    }
-    .header-red    { background: linear-gradient(135deg, #EF4444, #991B1B); }
-    .header-orange { background: linear-gradient(135deg, #F59E0B, #92400E); }
-    .header-blue   { background: linear-gradient(135deg, #3B82F6, #1E40AF); }
-    .header-green  { background: linear-gradient(135deg, #10B981, #065F46); }
-    .card-body {
-        padding: 12px; overflow-y: auto; flex-grow: 1; background: #FFFFFF;
-    }
-    .name-tag {
-        display: inline-block; background: #F1F5F9; color: #1E293B !important;
-        padding: 4px 10px; border-radius: 8px; margin: 3px; font-size: 0.85rem;
-        border: 1px solid #CBD5E1; font-weight: 600;
-    }
-    /* 訪客角色提示徽章 */
-    .viewer-badge {
-        background: #FEF3C7; color: #92400E; border: 1px solid #FCD34D;
-        border-radius: 8px; padding: 6px 10px; font-size: 0.82rem;
-        text-align: center; margin-bottom: 8px;
-    }
-    .stTabs [data-baseweb="tab"] { font-size: 1rem; font-weight: 600; padding: 10px 15px; }
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    </style>
-    """, unsafe_allow_html=True)
 
-# --- 民國年月轉換 ---
+# ──────────────────────────────────────────────
+# 工具函數
+# ──────────────────────────────────────────────
+def safe_div(num, den) -> float:
+    if pd.isna(den) or den == 0:
+        return 0.0
+    r = num / den
+    return 0.0 if pd.isna(r) else float(r)
+
+
 def convert_minguo_date(val):
     try:
         s = str(int(val)).strip()
-        if len(s) == 5: year, month = int(s[:3]) + 1911, int(s[3:])
-        elif len(s) == 4: year, month = int(s[:2]) + 1911, int(s[2:])
+        if   len(s) == 5: y, m = int(s[:3]) + 1911, int(s[3:])
+        elif len(s) == 4: y, m = int(s[:2]) + 1911, int(s[2:])
         else: return pd.NaT
-        return pd.to_datetime(f"{year}-{month}-01")
-    except:
+        return pd.to_datetime(f"{y}-{m:02d}-01")
+    except Exception:
         return pd.NaT
 
-# --- 資料處理引擎 ---
+
+def name_tags(names: list) -> str:
+    if not names:
+        return '<div class="no-target">無標的</div>'
+    return "".join(f'<span class="name-tag">{n}</span>' for n in names)
+
+
+def stat_card(title: str, names: list, hdr_cls: str):
+    st.markdown(
+        f'<div class="stat-card">'
+        f'<div class="card-header {hdr_cls}">{title}</div>'
+        f'<div class="card-body">{name_tags(names)}</div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def apply_chart_style(fig, title="", is_pct=True):
+    kw = dict(yaxis_tickformat=".1%") if is_pct else {}
+    fig.update_layout(
+        title=title, plot_bgcolor="white", hovermode="x unified",
+        legend=dict(orientation="h", yanchor="top", y=-0.2, xanchor="center", x=0.5),
+        margin=dict(l=10, r=20, t=40, b=10),
+        **kw,
+    )
+    fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor="#F1F5F9")
+    fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor="#F1F5F9")
+    return fig
+
+
+# ──────────────────────────────────────────────
+# 診斷分類
+# ──────────────────────────────────────────────
+STATUS = {
+    "high_risk": "🚨 高風險列管",
+    "liquidity":  "⚠️ 流動性緊繃",
+    "idle":       "💤 資金閒置",
+    "stable":     "✅ 穩健模範",
+    "normal":     "📊 一般狀態",
+}
+COLOR_MAP = {
+    STATUS["high_risk"]: "#EF4444",
+    STATUS["liquidity"]:  "#F59E0B",
+    STATUS["idle"]:       "#3B82F6",
+    STATUS["stable"]:     "#10B981",
+    STATUS["normal"]:     "#94A3B8",
+}
+
+
+def classify(eOverdue, sOverdue, eLoan, shrGrowth, memGrowth) -> str:
+    if eOverdue > sOverdue and eOverdue > 0.1:           return STATUS["high_risk"]
+    if eLoan > 0.9 and shrGrowth < 0:                   return STATUS["liquidity"]
+    if eLoan < 0.3 and eOverdue < 0.02:                 return STATUS["idle"]
+    if memGrowth > 0 and shrGrowth > 0 \
+       and 0.4 < eLoan < 0.8 and eOverdue < 0.02:       return STATUS["stable"]
+    return STATUS["normal"]
+
+
+# ──────────────────────────────────────────────
+# 資料處理引擎
+# ──────────────────────────────────────────────
 @st.cache_data(show_spinner="🚀 正在啟動決策引擎與數據解析...")
-def process_excel_only(file):
-    df_m_raw = pd.read_excel(file, sheet_name="社務及資金運用情形", dtype={'社號': str, '年月': str})
-    df_l_raw = pd.read_excel(file, sheet_name="放款及逾期放款",     dtype={'社號': str, '年月': str})
+def process_excel(file_bytes: bytes):
+    try:
+        with pd.ExcelFile(io.BytesIO(file_bytes)) as xls:
+            missing = {SHEET_MAIN, SHEET_LOAN} - set(xls.sheet_names)
+            if missing:
+                raise ValueError(f"Excel 缺少工作表：{', '.join(missing)}")
+            df_m_raw = pd.read_excel(xls, sheet_name=SHEET_MAIN, dtype={"社號": str, "年月": str})
+            df_l_raw = pd.read_excel(xls, sheet_name=SHEET_LOAN,  dtype={"社號": str, "年月": str})
+    except ValueError:
+        raise
+    except Exception as e:
+        raise ValueError(f"檔案讀取失敗：{e}") from e
 
-    df_m_raw['年月'] = df_m_raw['年月'].apply(convert_minguo_date)
-    df_l_raw['年月'] = df_l_raw['年月'].apply(convert_minguo_date)
+    df_m_raw["年月"] = df_m_raw["年月"].apply(convert_minguo_date)
+    df_l_raw["年月"] = df_l_raw["年月"].apply(convert_minguo_date)
 
-    for col in ['社員數', '股金', '貸放比']:
-        df_m_raw[col] = pd.to_numeric(df_m_raw[col], errors='coerce').fillna(0)
-    df_m_raw['儲蓄率'] = pd.to_numeric(df_m_raw['儲蓄率'], errors='coerce').fillna(0) / 100
-    df_l_raw['逾放比'] = pd.to_numeric(df_l_raw['逾放比'], errors='coerce').fillna(0)
-    df_l_raw['提撥率'] = pd.to_numeric(df_l_raw['提撥率'], errors='coerce').fillna(0) / 100
-    df_l_raw['收支比'] = pd.to_numeric(df_l_raw['收支比'], errors='coerce').fillna(0) / 100
+    for col in ["社員數", "股金", "貸放比"]:
+        df_m_raw[col] = pd.to_numeric(df_m_raw[col], errors="coerce").fillna(0)
+    df_m_raw["儲蓄率"] = pd.to_numeric(df_m_raw["儲蓄率"], errors="coerce").fillna(0) / 100
+    df_l_raw["逾放比"] = pd.to_numeric(df_l_raw["逾放比"], errors="coerce").fillna(0)
+    df_l_raw["提撥率"] = pd.to_numeric(df_l_raw["提撥率"], errors="coerce").fillna(0) / 100
+    df_l_raw["收支比"] = pd.to_numeric(df_l_raw["收支比"], errors="coerce").fillna(0) / 100
 
-    df_m = df_m_raw.dropna(subset=['年月']).sort_values(by=['社號', '年月'])
-    df_l = df_l_raw.dropna(subset=['年月']).sort_values(by=['社號', '年月'])
+    df_m = df_m_raw.dropna(subset=["年月"]).sort_values(["社號", "年月"])
+    df_l = df_l_raw.dropna(subset=["年月"]).sort_values(["社號", "年月"])
 
-    max_date     = df_m['年月'].max()
+    max_date     = df_m["年月"].max()
     date_12m_ago = max_date - pd.DateOffset(months=12)
-    societies    = df_m['社號'].unique()
+
+    def latest(g, col):
+        v = g.loc[g["年月"] == max_date, col].values
+        return float(v[0]) if len(v) else float(g.iloc[-1][col])
+
+    def earliest_before(g, col):
+        sub = g.loc[g["年月"] <= date_12m_ago, col]
+        return float(sub.iloc[-1]) if len(sub) else float(g.iloc[0][col])
+
     rows = []
+    for s_no in df_m["社號"].unique():
+        ms   = df_m[df_m["社號"] == s_no]
+        ls   = df_l[df_l["社號"] == s_no]
+        name = ms["社名"].iloc[0]
 
-    for s_no in societies:
-        m_sub  = df_m[df_m['社號'] == s_no]
-        l_sub  = df_l[df_l['社號'] == s_no]
-        s_name = m_sub['社名'].iloc[0]
-
-        def get_v(g, c, lat=True):
-            if g.empty: return 0
-            if lat:
-                v = g[g['年月'] == max_date][c].values
-                return v[0] if len(v) > 0 else g.iloc[-1][c]
-            else:
-                v = g[g['年月'] <= date_12m_ago].tail(1)[c].values
-                return v[0] if len(v) > 0 else g.iloc[0][c]
-
-        eM, sM     = get_v(m_sub, '社員數', True),  get_v(m_sub, '社員數', False)
-        eS, sS     = get_v(m_sub, '股金',   True),  get_v(m_sub, '股金',   False)
-        eOverdue   = get_v(l_sub, '逾放比', True)
-        sOverdue   = l_sub.iloc[0]['逾放比'] if not l_sub.empty else 0
-        eLoanRatio = get_v(m_sub, '貸放比', True)
-        memGrowth  = safe_div((eM - sM), sM)
-        shrGrowth  = safe_div((eS - sS), sS)
-
-        status = "📊 一般狀態"
-        if eOverdue > sOverdue and eOverdue > 0.1:
-            status = "🚨 高風險列管"
-        elif eLoanRatio > 0.9 and shrGrowth < 0:
-            status = "⚠️ 流動性緊繃"
-        elif eLoanRatio < 0.3 and eOverdue < 0.02:
-            status = "💤 資金閒置"
-        elif memGrowth > 0 and shrGrowth > 0 and 0.4 < eLoanRatio < 0.8 and eOverdue < 0.02:
-            status = "✅ 穩健模範"
+        eM, sM     = latest(ms, "社員數"),  earliest_before(ms, "社員數")
+        eS, sS     = latest(ms, "股金"),    earliest_before(ms, "股金")
+        eOvd       = latest(ls, "逾放比")   if not ls.empty else 0.0
+        sOvd       = float(ls.iloc[0]["逾放比"]) if not ls.empty else 0.0
+        eLoan      = latest(ms, "貸放比")
+        memG       = safe_div(eM - sM, sM)
+        shrG       = safe_div(eS - sS, sS)
 
         rows.append({
-            '社號': s_no, '社名': s_name, '診斷狀態': status,
-            '現有社員': eM,   '社員成長率(12M)': memGrowth,
-            '現有股金': eS,   '股金成長率(12M)': shrGrowth,
-            '貸放比': eLoanRatio, '儲蓄率': get_v(m_sub, '儲蓄率', True),
-            '逾放比(初)': sOverdue, '逾放比(末)': eOverdue,
-            '提撥率': get_v(l_sub, '提撥率', True),
-            '收支比': get_v(l_sub, '收支比', True),
-            'sM_total': sM, 'sS_total': sS
+            "社號": s_no, "社名": name,
+            "診斷狀態":      classify(eOvd, sOvd, eLoan, shrG, memG),
+            "現有社員":      eM,    "社員成長率(12M)": memG,
+            "現有股金":      eS,    "股金成長率(12M)": shrG,
+            "貸放比":        eLoan, "儲蓄率":          latest(ms, "儲蓄率"),
+            "逾放比(初)":   sOvd,  "逾放比(末)":      eOvd,
+            "提撥率":        latest(ls, "提撥率") if not ls.empty else 0.0,
+            "收支比":        latest(ls, "收支比") if not ls.empty else 0.0,
+            "_sM": sM, "_sS": sS,
         })
 
-    final_df = pd.DataFrame(rows).fillna(0)
-    return final_df, df_m, df_l
+    return pd.DataFrame(rows).fillna(0), df_m, df_l
 
-# ==========================================
-# ⚙️ 側邊欄
-# ==========================================
-st.sidebar.markdown("## ⚙️ 決策數據中心")
 
-# 顯示目前角色
-if IS_ADMIN:
-    st.sidebar.markdown("🔑 **管理員模式**（可上傳）")
-else:
-    st.sidebar.markdown('<div class="viewer-badge">👁️ 訪客模式（僅限瀏覽）</div>', unsafe_allow_html=True)
+# ──────────────────────────────────────────────
+# 側邊欄
+# ──────────────────────────────────────────────
+with st.sidebar:
+    st.markdown("## ⚙️ 決策數據中心")
+    badge_cls  = "badge-admin"  if IS_ADMIN else "badge-viewer"
+    badge_txt  = "🔑 管理員模式（可上傳）" if IS_ADMIN else "👁️ 訪客模式（僅限瀏覽）"
+    st.markdown(f'<div class="{badge_cls}">{badge_txt}</div>', unsafe_allow_html=True)
+    st.markdown("---")
+    if st.button("🚪 登出系統", use_container_width=True):
+        for k, v in _DEFAULTS.items():
+            st.session_state[k] = v
+        st.rerun()
+    st.markdown("---")
 
-if st.sidebar.button("🚪 登出系統"):
-    st.session_state["logged_in"] = False
-    st.session_state["role"]      = None
-    st.rerun()
 
-st.sidebar.markdown("---")
+# ──────────────────────────────────────────────
+# 資料載入
+# ──────────────────────────────────────────────
+data_loaded = False
+data = df_m = df_l = None
+raw_bytes = None
 
-# --- 資料載入邏輯 ---
 query_params = st.query_params
 shared_file  = query_params.get("file")
 
-data_loaded          = False
-data, df_m, df_l     = None, None, None
-uploaded_file_value  = None   # 保存原始 bytes 供雲端上傳用
-
 if shared_file:
-    # 透過分享連結載入（管理員 & 訪客皆可）
-    st.sidebar.info("📁 正在從雲端載入數據...")
+    with st.sidebar:
+        st.info("📁 正在從雲端載入...")
     try:
-        res        = supabase.storage.from_(BUCKET_NAME).download(shared_file)
-        file_bytes = io.BytesIO(res)
-        data, df_m, df_l = process_excel_only(file_bytes)
+        raw_bytes = supabase.storage.from_(BUCKET_NAME).download(shared_file)
+        data, df_m, df_l = process_excel(raw_bytes)
         data_loaded = True
-        st.sidebar.success("✅ 雲端資料載入成功！")
+        with st.sidebar:
+            st.success("✅ 雲端資料載入成功！")
     except Exception:
-        st.sidebar.error("❌ 檔案讀取失敗，可能是連結已失效。")
+        with st.sidebar:
+            st.error("❌ 連結失效或檔案已刪除，請聯絡管理員重新產生。")
+        logger.error("Cloud load failed:\n%s", traceback.format_exc())
 
 elif IS_ADMIN:
-    # ✅ 管理員：顯示上傳介面
-    uploaded_file = st.sidebar.file_uploader("匯入 Excel 檔案", type=["xlsx"])
-
-    if uploaded_file:
+    with st.sidebar:
+        uploaded = st.file_uploader("📂 匯入 Excel 檔案", type=["xlsx"])
+    if uploaded:
         try:
-            uploaded_file_value      = uploaded_file.getvalue()   # 先把 bytes 存起來
-            data, df_m, df_l         = process_excel_only(io.BytesIO(uploaded_file_value))
-            data_loaded              = True
-            st.sidebar.success("✅ 檔案解析成功！")
-
-            st.sidebar.markdown("---")
-            st.sidebar.markdown("### ☁️ 雲端分享功能")
-            if st.sidebar.button("🚀 生成即時分享連結"):
-                with st.spinner("正在安全加密並上傳至雲端..."):
-                    safe_filename = f"report_{uuid.uuid4().hex[:8]}.xlsx"
-                    try:
-                        supabase.storage.from_(BUCKET_NAME).upload(
-                            safe_filename,
-                            uploaded_file_value,
-                            file_options={
-                                "content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                "x-upsert": "true"
-                            }
-                        )
-                        app_base_url = "https://8asdxeziyl2ozfrmkpzof3.streamlit.app"
-                        share_url    = f"{app_base_url}/?file={safe_filename}"
-                        st.sidebar.success("✅ 上傳成功！")
-                        st.sidebar.code(share_url, language="text")
-                        st.sidebar.caption("複製上方連結給其他人，他們就能直接觀看此報表！")
-                    except Exception as e:
-                        st.sidebar.error(f"上傳失敗：{e}")
-
+            raw_bytes = uploaded.getvalue()
+            data, df_m, df_l = process_excel(raw_bytes)
+            data_loaded = True
+            with st.sidebar:
+                st.success("✅ 檔案解析成功！")
+                st.markdown("---")
+                st.markdown("### ☁️ 雲端分享功能")
+                if st.button("🚀 生成分享連結", use_container_width=True):
+                    with st.spinner("上傳中..."):
+                        try:
+                            fname = f"report_{uuid.uuid4().hex[:10]}.xlsx"
+                            supabase.storage.from_(BUCKET_NAME).upload(
+                                fname, raw_bytes,
+                                file_options={
+                                    "content-type": (
+                                        "application/vnd.openxmlformats-"
+                                        "officedocument.spreadsheetml.sheet"
+                                    ),
+                                    "x-upsert": "true",
+                                },
+                            )
+                            url = f"{APP_BASE_URL}/?file={fname}"
+                            st.success("✅ 上傳成功！")
+                            st.code(url, language="text")
+                            st.caption("將此連結分享給訪客即可直接瀏覽。")
+                        except Exception as e:
+                            st.error(f"上傳失敗：{e}")
+                            logger.error("Upload failed:\n%s", traceback.format_exc())
+        except ValueError as e:
+            with st.sidebar:
+                st.error(f"❌ {e}")
         except Exception:
-            st.sidebar.error("❌ 檔案讀取失敗！")
-            st.sidebar.warning("請確保 Excel 包含「社務及資金運用情形」與「放款及逾期放款」兩個資料表。")
-            st.stop()
+            with st.sidebar:
+                st.error("❌ 未知錯誤，請確認檔案格式正確。")
+            logger.error("Excel parse failed:\n%s", traceback.format_exc())
 
 else:
-    # 🔒 訪客：隱藏上傳區，只提示透過連結瀏覽
-    st.sidebar.info("📎 請使用管理員提供的分享連結載入報表。")
+    with st.sidebar:
+        st.info("📎 請使用管理員提供的分享連結載入報表資料。")
 
-# ==========================================
-# 📊 主畫面渲染
-# ==========================================
-if data_loaded:
-    t1, t2, t3, t4, t5 = st.tabs(["📊 經營總覽", "🎯 全域風險矩陣", "🏥 個社健檢", "📋 報表匯出", "📈 趨勢追蹤"])
 
-    with t1:
-        st.markdown("### 🏆 區會總體指標")
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("全體社員總數", f"{int(data['現有社員'].sum()):,}",
-                  f"{(data['現有社員'].sum()-data['sM_total'].sum())/data['sM_total'].sum():.2%}")
-        m2.metric("全體股金總額", f"${data['現有股金'].sum()/1e8:.2f} 億",
-                  f"{(data['現有股金'].sum()-data['sS_total'].sum())/data['sS_total'].sum():.2%}")
-        m3.metric("全區平均收支比", f"{data['收支比'].mean():.2%}")
-        m4.metric("全區平均逾放比", f"{data['逾放比(末)'].mean():.2%}")
-
-        st.markdown("### 🏷️ 狀態雷達監控")
-        hr  = data[data['診斷狀態'] == '🚨 高風險列管']['社名'].tolist()
-        liq = data[data['診斷狀態'] == '⚠️ 流動性緊繃']['社名'].tolist()
-        idl = data[data['診斷狀態'] == '💤 資金閒置']['社名'].tolist()
-        std = data[data['診斷狀態'] == '✅ 穩健模範']['社名'].tolist()
-
-        c1, c2, c3, c4 = st.columns(4)
-        def draw_card(title, names, cls):
-            tags = "".join([f'<span class="name-tag">{n}</span>' for n in names]) \
-                   if names else '<div style="color:#94A3B8;text-align:center;margin-top:20px;">無標的</div>'
-            st.markdown(
-                f'<div class="stat-card"><div class="card-header {cls}">{title}</div>'
-                f'<div class="card-body">{tags}</div></div>',
-                unsafe_allow_html=True
-            )
-        with c1: draw_card("🚨 高風險列管", hr,  "header-red")
-        with c2: draw_card("⚠️ 流動性緊繃", liq, "header-orange")
-        with c3: draw_card("💤 資金閒置",   idl, "header-blue")
-        with c4: draw_card("✅ 穩健模範",   std, "header-green")
-
-    with t2:
-        st.markdown("### 🎯 全區風險分佈矩陣 (散佈圖)")
-        st.caption("💡 每個氣泡代表一家儲互社，氣泡越大代表社員數越多。")
-        fig_scatter = px.scatter(
-            data, x='貸放比', y='逾放比(末)',
-            color='診斷狀態', size='現有社員', hover_name='社名',
-            color_discrete_map={
-                '🚨 高風險列管': '#EF4444', '⚠️ 流動性緊繃': '#F59E0B',
-                '💤 資金閒置':   '#3B82F6', '✅ 穩健模範':   '#10B981', '📊 一般狀態': '#94A3B8'
-            }, size_max=25, height=550
-        )
-        fig_scatter.add_hline(y=0.1,  line_dash="dot", line_color="red",    annotation_text="高風險(10%)")
-        fig_scatter.add_vline(x=0.9,  line_dash="dot", line_color="orange", annotation_text="緊繃(90%)")
-        fig_scatter.add_vline(x=0.3,  line_dash="dot", line_color="blue",   annotation_text="閒置(30%)")
-        fig_scatter.update_layout(
-            xaxis_tickformat='.1%', yaxis_tickformat='.1%', plot_bgcolor="white",
-            legend=dict(orientation="h", yanchor="top", y=-0.15, xanchor="center", x=0.5),
-            margin=dict(l=10, r=20, t=30, b=10)
-        )
-        fig_scatter.update_xaxes(showgrid=True, gridwidth=1, gridcolor='#F1F5F9')
-        fig_scatter.update_yaxes(showgrid=True, gridwidth=1, gridcolor='#F1F5F9')
-        st.plotly_chart(fig_scatter, use_container_width=True)
-
-    with t3:
-        st.markdown("### 🏥 單一儲互社健檢報告")
-        target_society = st.selectbox("請選擇要診斷的儲互社：", data['社名'].unique())
-        if target_society:
-            target_data = data[data['社名'] == target_society].iloc[0]
-            global_avg  = data.mean(numeric_only=True)
-            st.markdown(f"#### 【{target_society}】目前狀態：`{target_data['診斷狀態']}`")
-            metrics      = ['貸放比', '儲蓄率', '逾放比(末)', '收支比', '社員成長率', '股金成長率']
-            target_vals  = [target_data['貸放比'], target_data['儲蓄率'], target_data['逾放比(末)'],
-                            target_data['收支比'],  target_data['社員成長率(12M)'],  target_data['股金成長率(12M)']]
-            avg_vals     = [global_avg['貸放比'],  global_avg['儲蓄率'],  global_avg['逾放比(末)'],
-                            global_avg['收支比'],   global_avg['社員成長率(12M)'],   global_avg['股金成長率(12M)']]
-            fig_bar = go.Figure(data=[
-                go.Bar(name=target_society, x=metrics, y=target_vals, marker_color='#3B82F6'),
-                go.Bar(name='全區平均',     x=metrics, y=avg_vals,    marker_color='#CBD5E1')
-            ])
-            fig_bar.update_layout(
-                barmode='group', height=450, yaxis_tickformat='.1%', plot_bgcolor="white",
-                title="關鍵指標與區域基準對比",
-                legend=dict(orientation="h", yanchor="top", y=-0.15, xanchor="center", x=0.5),
-                margin=dict(l=10, r=10, t=40, b=10)
-            )
-            fig_bar.update_yaxes(showgrid=True, gridwidth=1, gridcolor='#F1F5F9')
-            st.plotly_chart(fig_bar, use_container_width=True)
-
-    with t4:
-        st.markdown("### 📋 完整診斷數據總表")
-        final_table = data.drop(columns=['sM_total', 'sS_total'])
-        st.dataframe(
-            final_table.style
-            .apply(lambda row: [
-                'background-color: #FEF2F2; font-weight: bold; color: #991B1B'
-                if '高風險' in row['診斷狀態'] else '' for _ in row
-            ], axis=1)
-            .format({
-                '社員成長率(12M)': '{:.2%}', '股金成長率(12M)': '{:.2%}',
-                '貸放比': '{:.1%}', '儲蓄率': '{:.2%}',
-                '逾放比(初)': '{:.2%}', '逾放比(末)': '{:.2%}',
-                '提撥率': '{:.2%}', '收支比': '{:.2%}',
-                '現有社員': '{:,}', '現有股金': '${:,.0f}'
-            }),
-            use_container_width=True, height=550
-        )
-        st.download_button(
-            "📥 一鍵匯出 CSV",
-            final_table.to_csv(index=False).encode('utf-8-sig'),
-            "診斷報告.csv", "text/csv"
-        )
-
-    with t5:
-        st.markdown("### 📈 歷史趨勢對比 (含區域基準線)")
-        show_avg = st.checkbox("顯示區域基準線 (黑色虛線)", value=True)
-
-        df_all  = pd.merge(df_m, df_l[['年月', '社號', '逾放比', '收支比']], on=['年月', '社號'], how='left')
-        avg_df  = df_all.groupby('年月').mean(numeric_only=True).reset_index()
-        avg_df['社名'] = '—— 區域基準 ——'
-
-        selected = st.multiselect("加入比較的儲互社：", options=data['社名'].unique(),
-                                  default=data['社名'].iloc[0])
-        if selected:
-            plot_data = pd.concat([df_all[df_all['社名'].isin(selected)], avg_df]) \
-                        if show_avg else df_all[df_all['社名'].isin(selected)]
-
-            def draw_chart(y_col, title, is_pct=True):
-                fig = px.line(plot_data, x='年月', y=y_col, color='社名', title=title,
-                              markers=True, color_discrete_map={'—— 區域基準 ——': '#1E293B'})
-                fig.for_each_trace(lambda t: t.update(line=dict(dash='dash', width=3))
-                                   if t.name == '—— 區域基準 ——' else ())
-                if is_pct: fig.update_layout(yaxis_tickformat='.1%')
-                fig.update_layout(
-                    hovermode="x unified", plot_bgcolor="white",
-                    legend=dict(orientation="h", yanchor="top", y=-0.2, xanchor="center", x=0.5),
-                    margin=dict(l=10, r=20, t=40, b=10)
-                )
-                st.plotly_chart(fig, use_container_width=True)
-
-            c1, c2 = st.columns(2)
-            with c1: draw_chart('社員數', "👥 社員數", False)
-            with c2: draw_chart('貸放比', "💰 貸放比")
-            c3, c4 = st.columns(2)
-            with c3: draw_chart('儲蓄率', "🏦 儲蓄率")
-            with c4: draw_chart('逾放比', "⚠️ 逾放比")
-            st.divider()
-            draw_chart('收支比', "📈 收支比")
-
-else:
+# ──────────────────────────────────────────────
+# 主畫面：尚未載入
+# ──────────────────────────────────────────────
+if not data_loaded:
     st.markdown("""
-        <div style="text-align: center; margin-top: 50px; color: #64748B;">
-            <h1 style="font-size: 3rem;">🏦 儲互社雲端決策中心</h1>
-            <h2 style="color: #1E293B;">歡迎使用</h2>
-            <p>請於左側上傳 Excel 檔案，或透過分享連結直接載入最新分析數據。</p>
+        <div style="text-align:center;margin-top:12vh;color:#64748B;">
+            <div style="font-size:4rem;">🏦</div>
+            <h1 style="color:#1A202C;font-size:2rem;margin:.5rem 0;">儲互社雲端決策中心</h1>
+            <p style="font-size:1rem;">
+                管理員請於左側上傳 Excel 檔案 &nbsp;／&nbsp; 訪客請使用分享連結直接載入。
+            </p>
         </div>
     """, unsafe_allow_html=True)
+    st.stop()
+
+
+# ──────────────────────────────────────────────
+# Tabs
+# ──────────────────────────────────────────────
+tab_ov, tab_mx, tab_hc, tab_rp, tab_tr = st.tabs([
+    "📊 經營總覽", "🎯 全域風險矩陣", "🏥 個社健檢", "📋 報表匯出", "📈 趨勢追蹤",
+])
+
+
+# ════════════ Tab 1：經營總覽 ════════════
+with tab_ov:
+    st.markdown("### 🏆 區會總體指標")
+    total_mem = data["現有社員"].sum()
+    total_shr = data["現有股金"].sum()
+    prev_mem  = data["_sM"].sum()
+    prev_shr  = data["_sS"].sum()
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("全體社員總數",  f"{int(total_mem):,}",
+              f"{safe_div(total_mem - prev_mem, prev_mem):.2%}")
+    c2.metric("全體股金總額",  f"${total_shr/1e8:.2f} 億",
+              f"{safe_div(total_shr - prev_shr, prev_shr):.2%}")
+    c3.metric("全區平均收支比", f"{data['收支比'].mean():.2%}")
+    c4.metric("全區平均逾放比", f"{data['逾放比(末)'].mean():.2%}")
+
+    st.markdown("### 🏷️ 狀態雷達監控")
+    def names_of(key): return data[data["診斷狀態"] == STATUS[key]]["社名"].tolist()
+    sc1, sc2, sc3, sc4 = st.columns(4)
+    with sc1: stat_card("🚨 高風險列管", names_of("high_risk"), "hdr-red")
+    with sc2: stat_card("⚠️ 流動性緊繃", names_of("liquidity"),  "hdr-orange")
+    with sc3: stat_card("💤 資金閒置",   names_of("idle"),       "hdr-blue")
+    with sc4: stat_card("✅ 穩健模範",   names_of("stable"),     "hdr-green")
+
+
+# ════════════ Tab 2：全域風險矩陣 ════════════
+with tab_mx:
+    st.markdown("### 🎯 全區風險分佈矩陣")
+    st.caption("氣泡大小 = 社員數。十字線為閾值邊界，協助快速定位高風險社別。")
+
+    fig = px.scatter(
+        data, x="貸放比", y="逾放比(末)",
+        color="診斷狀態", size="現有社員", hover_name="社名",
+        color_discrete_map=COLOR_MAP, size_max=28, height=560,
+    )
+    fig.add_hline(y=0.10, line_dash="dot", line_color="#EF4444", annotation_text="高風險 10%")
+    fig.add_vline(x=0.90, line_dash="dot", line_color="#F59E0B", annotation_text="緊繃 90%")
+    fig.add_vline(x=0.30, line_dash="dot", line_color="#3B82F6", annotation_text="閒置 30%")
+    apply_chart_style(fig)
+    fig.update_layout(legend=dict(orientation="h", yanchor="top", y=-0.12, xanchor="center", x=0.5))
+    st.plotly_chart(fig, use_container_width=True)
+
+
+# ════════════ Tab 3：個社健檢 ════════════
+with tab_hc:
+    st.markdown("### 🏥 單一儲互社健檢報告")
+    target = st.selectbox("請選擇要診斷的儲互社：", data["社名"].unique())
+
+    if target:
+        row  = data[data["社名"] == target].iloc[0]
+        gavg = data.mean(numeric_only=True)
+        st.markdown(f"#### 【{target}】目前狀態：`{row['診斷狀態']}`")
+        st.markdown("---")
+
+        KEYS   = ["貸放比", "儲蓄率", "逾放比(末)", "收支比", "社員成長率(12M)", "股金成長率(12M)"]
+        LABELS = ["貸放比", "儲蓄率", "逾放比(末)", "收支比", "社員成長率",       "股金成長率"]
+
+        fig_bar = go.Figure([
+            go.Bar(name=target,   x=LABELS, y=[row[k]  for k in KEYS], marker_color="#3B82F6"),
+            go.Bar(name="全區平均", x=LABELS, y=[gavg[k] for k in KEYS], marker_color="#CBD5E1"),
+        ])
+        apply_chart_style(fig_bar, title="關鍵指標 vs 全區基準")
+        fig_bar.update_layout(barmode="group", height=440)
+        st.plotly_chart(fig_bar, use_container_width=True)
+
+        st.markdown("##### 📋 詳細數值")
+        kv = [
+            ("現有社員",   f"{int(row['現有社員']):,} 人"),
+            ("現有股金",   f"${row['現有股金']:,.0f}"),
+            ("貸放比",     f"{row['貸放比']:.1%}"),
+            ("儲蓄率",     f"{row['儲蓄率']:.2%}"),
+            ("逾放比(末)", f"{row['逾放比(末)']:.2%}"),
+            ("收支比",     f"{row['收支比']:.2%}"),
+            ("社員成長率", f"{row['社員成長率(12M)']:.2%}"),
+            ("股金成長率", f"{row['股金成長率(12M)']:.2%}"),
+        ]
+        kv_cols = st.columns(4)
+        for i, (lbl, val) in enumerate(kv):
+            kv_cols[i % 4].metric(lbl, val)
+
+
+# ════════════ Tab 4：報表匯出 ════════════
+with tab_rp:
+    st.markdown("### 📋 完整診斷數據總表")
+    display_df = data.drop(columns=["_sM", "_sS"])
+    fmt = {
+        "社員成長率(12M)": "{:.2%}", "股金成長率(12M)": "{:.2%}",
+        "貸放比":  "{:.1%}",  "儲蓄率":    "{:.2%}",
+        "逾放比(初)": "{:.2%}", "逾放比(末)": "{:.2%}",
+        "提撥率":  "{:.2%}",  "收支比":    "{:.2%}",
+        "現有社員": "{:,}",   "現有股金":  "${:,.0f}",
+    }
+
+    def row_highlight(row):
+        is_hr = "高風險" in str(row.get("診斷狀態", ""))
+        s = "background-color:#FEF2F2;color:#991B1B;font-weight:bold;" if is_hr else ""
+        return [s] * len(row)
+
+    st.dataframe(
+        display_df.style.apply(row_highlight, axis=1).format(fmt),
+        use_container_width=True, height=560,
+    )
+    st.download_button(
+        "📥 匯出完整診斷報告 (CSV)",
+        display_df.to_csv(index=False).encode("utf-8-sig"),
+        "診斷報告.csv", "text/csv", use_container_width=True,
+    )
+
+
+# ════════════ Tab 5：趨勢追蹤 ════════════
+with tab_tr:
+    st.markdown("### 📈 歷史趨勢對比")
+
+    df_all = pd.merge(
+        df_m,
+        df_l[["年月", "社號", "逾放比", "收支比"]],
+        on=["年月", "社號"], how="left",
+    )
+    avg_df         = df_all.groupby("年月").mean(numeric_only=True).reset_index()
+    avg_df["社名"] = "—— 區域基準 ——"
+    BASELINE_COLOR = {"—— 區域基準 ——": "#1E293B"}
+
+    show_avg = st.checkbox("顯示區域基準線（黑色虛線）", value=True)
+    selected = st.multiselect(
+        "加入比較的儲互社：",
+        options=data["社名"].unique(),
+        default=[data["社名"].iloc[0]],
+    )
+
+    if not selected:
+        st.info("請至少選擇一家儲互社。")
+    else:
+        base = df_all[df_all["社名"].isin(selected)]
+        plot = pd.concat([base, avg_df]) if show_avg else base
+
+        def trend_chart(col, title, is_pct=True):
+            fig = px.line(plot, x="年月", y=col, color="社名",
+                          title=title, markers=True, color_discrete_map=BASELINE_COLOR)
+            fig.for_each_trace(
+                lambda t: t.update(line=dict(dash="dash", width=2.5))
+                if t.name == "—— 區域基準 ——" else None
+            )
+            apply_chart_style(fig, title=title, is_pct=is_pct)
+            st.plotly_chart(fig, use_container_width=True)
+
+        r1, r2 = st.columns(2)
+        with r1: trend_chart("社員數", "👥 社員數趨勢",  is_pct=False)
+        with r2: trend_chart("貸放比", "💰 貸放比趨勢")
+        r3, r4 = st.columns(2)
+        with r3: trend_chart("儲蓄率", "🏦 儲蓄率趨勢")
+        with r4: trend_chart("逾放比", "⚠️ 逾放比趨勢")
+        st.divider()
+        trend_chart("收支比", "📈 收支比趨勢")
