@@ -4,11 +4,59 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 import io
-import uuid  # 👈 新增：用來產生安全的隨機檔名
+import uuid
 from supabase import create_client, Client
 
+# ==========================================
+# 🛠️ 輔助工具函數
+# ==========================================
+def safe_div(numerator, denominator):
+    """安全除法：避免除以 0 或 NaN 造成的運算錯誤"""
+    if pd.isna(denominator) or denominator == 0:
+        return 0
+    result = numerator / denominator
+    return result if not pd.isna(result) else 0
+
+# ==========================================
 # 1. 頁面基礎設定
-st.set_page_config(page_title="儲互社決策分析中心 v7.1", layout="wide", page_icon="🏦")
+# ==========================================
+st.set_page_config(page_title="儲互社決策分析中心", layout="wide", page_icon="🏦")
+
+# ==========================================
+# 🛑 系統登入密碼鎖
+# ==========================================
+def check_password():
+    # 改為從 st.secrets 讀取，並強制轉為字串確保比對正確
+    if st.session_state["password_input"] == str(st.secrets["system_password"]):
+        st.session_state["logged_in"] = True
+    else:
+        st.session_state["logged_in"] = False
+        st.error("❌ 密碼錯誤，請重新輸入！")
+
+# 初始化登入狀態
+if "logged_in" not in st.session_state:
+    st.session_state["logged_in"] = False
+
+# 如果尚未登入，顯示登入畫面並阻擋後續程式碼執行
+if not st.session_state["logged_in"]:
+    st.markdown("""
+        <div style="text-align: center; margin-top: 100px;">
+            <h1 style="font-size: 4rem;">🏦</h1>
+            <h1 style="color: #1E293B;">儲互社雲端決策中心</h1>
+            <p style="color: #64748B; font-size: 1.2rem;">請輸入系統存取密碼以繼續</p>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    col1, col2, col3 = st.columns([1, 1.5, 1])
+    with col2:
+        st.text_input("密碼", type="password", key="password_input", label_visibility="collapsed", placeholder="請輸入密碼")
+        st.button("🔓 登入系統", on_click=check_password, use_container_width=True)
+    
+    st.stop() # 阻擋程式繼續往下跑
+
+# ==========================================
+# 🟢 以下為密碼正確後，才會執行的核心程式碼
+# ==========================================
 
 # --- 初始化 Supabase 連線 ---
 @st.cache_resource
@@ -100,8 +148,10 @@ def process_excel_only(file):
         eOverdue = get_v(l_sub, '逾放比', True)
         sOverdue = l_sub.iloc[0]['逾放比'] if not l_sub.empty else 0
         eLoanRatio = get_v(m_sub, '貸放比', True)
-        memGrowth = (eM-sM)/sM if sM!=0 else 0
-        shrGrowth = (eS-sS)/sS if sS!=0 else 0
+        
+        # ✅ 使用安全除法計算成長率
+        memGrowth = safe_div((eM - sM), sM)
+        shrGrowth = safe_div((eS - sS), sS)
 
         status = "📊 一般狀態"
         if eOverdue > sOverdue and eOverdue > 0.1: status = "🚨 高風險列管"
@@ -119,10 +169,21 @@ def process_excel_only(file):
             'sM_total': sM, 'sS_total': sS
         })
 
-    return pd.DataFrame(rows), df_m, df_l
+    # ✅ 建立 DataFrame 後清除所有潛在的 NaN，確保繪圖與計算不會崩潰
+    final_df = pd.DataFrame(rows)
+    final_df = final_df.fillna(0)
+
+    return final_df, df_m, df_l
 
 # --- 側邊欄與資料載入邏輯 ---
 st.sidebar.markdown("## ⚙️ 決策數據中心")
+
+# 登出按鈕
+if st.sidebar.button("🚪 登出系統"):
+    st.session_state["logged_in"] = False
+    st.rerun()
+
+st.sidebar.markdown("---")
 
 query_params = st.query_params
 shared_file = query_params.get("file")
@@ -147,40 +208,49 @@ else:
     uploaded_file = st.sidebar.file_uploader("匯入 Excel 檔案", type=["xlsx"])
     
     if uploaded_file:
-        data, df_m, df_l = process_excel_only(uploaded_file)
-        data_loaded = True
-        # 👈 移除撒花通知 st.toast
+        try:
+            # 嘗試執行資料解析
+            data, df_m, df_l = process_excel_only(uploaded_file)
+            data_loaded = True
+            st.sidebar.success("✅ 檔案解析成功！")
         
-        st.sidebar.markdown("---")
-        st.sidebar.markdown("### ☁️ 雲端分享功能")
-        if st.sidebar.button("🚀 生成即時分享連結"):
-            with st.spinner("正在安全加密並上傳至雲端..."):
-                file_bytes = uploaded_file.getvalue()
-                # 👈 解決方案：生成 8 碼的安全隨機檔名，避開中文字與覆蓋問題
-                safe_filename = f"report_{uuid.uuid4().hex[:8]}.xlsx"
-                
-                try:
-                    supabase.storage.from_(BUCKET_NAME).upload(
-                        safe_filename,
-                        file_bytes,
-                        file_options={"content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "x-upsert": "true"}
-                    )
+            st.sidebar.markdown("---")
+            st.sidebar.markdown("### ☁️ 雲端分享功能")
+            if st.sidebar.button("🚀 生成即時分享連結"):
+                with st.spinner("正在安全加密並上傳至雲端..."):
+                    file_bytes = uploaded_file.getvalue()
+                    # 生成 8 碼的安全隨機檔名，避開中文字與覆蓋問題
+                    safe_filename = f"report_{uuid.uuid4().hex[:8]}.xlsx"
                     
-                    app_base_url = "8asdxeziyl2ozfrmkpzof3.streamlit.app" 
-                    share_url = f"{app_base_url}/?file={safe_filename}"
-                    
-                    st.sidebar.success("✅ 上傳成功！")
-                    st.sidebar.code(share_url, language="text")
-                    st.sidebar.caption("複製上方連結給其他人，他們就能直接觀看此報表！")
-                except Exception as e:
-                    st.sidebar.error(f"上傳失敗：{e}")
+                    try:
+                        supabase.storage.from_(BUCKET_NAME).upload(
+                            safe_filename,
+                            file_bytes,
+                            file_options={"content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "x-upsert": "true"}
+                        )
+                        
+                        # ⚠️ 注意：這行請務必換成您實際部署到 Streamlit 的網址
+                        app_base_url = "https://8asdxeziyl2ozfrmkpzof3.streamlit.app/" 
+                        share_url = f"{app_base_url}/?file={safe_filename}"
+                        
+                        st.sidebar.success("✅ 上傳成功！")
+                        st.sidebar.code(share_url, language="text")
+                        st.sidebar.caption("複製上方連結給其他人，他們就能直接觀看此報表！")
+                    except Exception as e:
+                        st.sidebar.error(f"上傳失敗：{e}")
+
+        except Exception as e:
+            # 如果發生錯誤 (如找不到 Sheet、欄位名稱不對等)，顯示友善的錯誤訊息
+            st.sidebar.error("❌ 檔案讀取失敗！")
+            st.sidebar.warning("請確保上傳的 Excel 包含「社務及資金運用情形」與「放款及逾期放款」兩個資料表，且格式正確。")
+            st.stop() # 阻擋程式繼續往下跑，避免畫面產生亂碼或紅字崩潰
 
 # --- 主畫面渲染 ---
 if data_loaded:
-    t1, t2, t3, t4, t5 = st.tabs(["📊 經營總覽", "🎯 全域風險矩陣", "🏥 個社深度健檢", "📋 報表匯出", "📈 趨勢追蹤"])
+    t1, t2, t3, t4, t5 = st.tabs(["📊 經營總覽", "🎯 全域風險矩陣", "🏥 個社健檢", "📋 報表匯出", "📈 趨勢追蹤"])
 
     with t1:
-        st.markdown("### 🏆 區會級總體指標")
+        st.markdown("### 🏆 區會總體指標")
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("全體社員總數", f"{int(data['現有社員'].sum()):,}", f"{(data['現有社員'].sum()-data['sM_total'].sum())/data['sM_total'].sum():.2%}")
         m2.metric("全體股金總額", f"${data['現有股金'].sum()/1e8:.2f} 億", f"{(data['現有股金'].sum()-data['sS_total'].sum())/data['sS_total'].sum():.2%}")
@@ -223,7 +293,7 @@ if data_loaded:
         st.plotly_chart(fig_scatter, use_container_width=True)
 
     with t3:
-        st.markdown("### 🏥 單一儲互社深度健檢報告")
+        st.markdown("### 🏥 單一儲互社健檢報告")
         target_society = st.selectbox("請選擇要診斷的儲互社：", data['社名'].unique())
         
         if target_society:
@@ -240,7 +310,7 @@ if data_loaded:
                 go.Bar(name=target_society, x=metrics, y=target_vals, marker_color='#3B82F6'),
                 go.Bar(name='全區平均', x=metrics, y=avg_vals, marker_color='#CBD5E1')
             ])
-            fig_bar.update_layout(barmode='group', height=450, yaxis_tickformat='.1%', plot_bgcolor="white", title="關鍵指標與大盤對比")
+            fig_bar.update_layout(barmode='group', height=450, yaxis_tickformat='.1%', plot_bgcolor="white", title="關鍵指標與區域基準對比")
             fig_bar.update_yaxes(showgrid=True, gridwidth=1, gridcolor='#F1F5F9')
             st.plotly_chart(fig_bar, use_container_width=True)
 
@@ -258,12 +328,12 @@ if data_loaded:
         st.download_button("📥 一鍵匯出 AI 診斷報表 (CSV)", final_table.to_csv(index=False).encode('utf-8-sig'), "儲互社經營診斷報告.csv", "text/csv")
 
     with t5:
-        st.markdown("### 📈 歷史趨勢對比 (含大盤基準線)")
-        show_avg = st.checkbox("顯示大盤基準線 (黑色虛線)", value=True)
+        st.markdown("### 📈 歷史趨勢對比 (含區域基準線)")
+        show_avg = st.checkbox("顯示區域基準線 (黑色虛線)", value=True)
         
         df_all = pd.merge(df_m, df_l[['年月', '社號', '逾放比', '收支比']], on=['年月', '社號'], how='left')
         avg_df = df_all.groupby('年月').mean(numeric_only=True).reset_index()
-        avg_df['社名'] = '—— 全區大盤 ——'
+        avg_df['社名'] = '—— 區域基準 ——'
 
         selected = st.multiselect("加入比較的儲互社：", options=data['社名'].unique(), default=data['社名'].iloc[0])
         
@@ -271,8 +341,8 @@ if data_loaded:
             plot_data = pd.concat([df_all[df_all['社名'].isin(selected)], avg_df]) if show_avg else df_all[df_all['社名'].isin(selected)]
             
             def draw_chart(y_col, title, is_pct=True):
-                fig = px.line(plot_data, x='年月', y=y_col, color='社名', title=title, markers=True, color_discrete_map={'—— 全區大盤 ——': '#1E293B'})
-                fig.for_each_trace(lambda t: t.update(line=dict(dash='dash', width=3)) if t.name == '—— 全區大盤 ——' else ())
+                fig = px.line(plot_data, x='年月', y=y_col, color='社名', title=title, markers=True, color_discrete_map={'—— 區域基準 ——': '#1E293B'})
+                fig.for_each_trace(lambda t: t.update(line=dict(dash='dash', width=3)) if t.name == '—— 區域基準 ——' else ())
                 if is_pct: fig.update_layout(yaxis_tickformat='.1%')
                 fig.update_layout(hovermode="x unified", plot_bgcolor="white")
                 st.plotly_chart(fig, use_container_width=True)
@@ -288,9 +358,9 @@ if data_loaded:
 
 else:
     st.markdown("""
-        <div style="text-align: center; margin-top: 100px; color: #64748B;">
+        <div style="text-align: center; margin-top: 50px; color: #64748B;">
             <h1 style="font-size: 3rem;">🏦 儲互社雲端決策中心</h1>
-            <h2>歡迎使用</h2>
+            <h2 style="color: #1E293B;">歡迎使用</h2>
             <p>請於左側上傳 Excel 檔案，或透過分享連結直接載入最新分析數據。</p>
         </div>
     """, unsafe_allow_html=True)
