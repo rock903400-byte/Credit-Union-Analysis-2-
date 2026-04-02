@@ -39,23 +39,22 @@ if "logged_in" not in st.session_state:
 
 # 如果尚未登入，顯示登入畫面並阻擋後續程式碼執行
 if not st.session_state["logged_in"]:
+    # 使用 vh 與 clamp() 讓字體與間距在手機自適應縮小，桌機放大
     st.markdown("""
-        <div style="text-align: center; margin-top: 100px;">
-            <h1 style="font-size: 4rem;">🏦</h1>
-            <h1 style="color: #1E293B;">儲互社雲端決策中心</h1>
-            <p style="color: #64748B; font-size: 1.2rem;">請輸入系統存取密碼以繼續</p>
+        <div style="text-align: center; margin-top: 8vh; margin-bottom: 2rem;">
+            <h1 style="font-size: clamp(3rem, 8vw, 4rem);">🏦</h1>
+            <h1 style="color: #1E293B; font-size: clamp(1.8rem, 5vw, 2.5rem);">儲互社雲端決策中心</h1>
+            <p style="color: #64748B; font-size: clamp(0.9rem, 3vw, 1.2rem);">請輸入系統存取密碼以繼續</p>
         </div>
     """, unsafe_allow_html=True)
     
-    col1, col2, col3 = st.columns([1, 1.5, 1])
-    with col2:
-        st.text_input("密碼", type="password", key="password_input", label_visibility="collapsed", placeholder="請輸入密碼")
-        st.button("🔓 登入系統", on_click=check_password, use_container_width=True)
+    st.text_input("密碼", type="password", key="password_input", label_visibility="collapsed", placeholder="請輸入密碼")
+    st.button("🔓 登入系統", on_click=check_password, use_container_width=True)
     
     st.stop() # 阻擋程式繼續往下跑
 
 # ==========================================
-# 🟢 以下為密碼正確後，才會執行的核心程式碼
+# 🟢 核心程式碼 (登入後執行)
 # ==========================================
 
 # --- 初始化 Supabase 連線 ---
@@ -68,29 +67,39 @@ def init_supabase() -> Client:
 supabase = init_supabase()
 BUCKET_NAME = "excel-reports"
 
-# --- 自定義 CSS ---
+# --- 自定義 CSS (高度最佳化與深色模式防禦) ---
 st.markdown("""
     <style>
-    .stApp { background-color: #F8FAFC; }
+    /* 強制主背景為亮色，並強制所有預設文字為深色 */
+    [data-testid="stAppViewContainer"] {
+        background-color: #F8FAFC !important;
+        color: #1E293B !important;
+    }
+    
+    h1, h2, h3, h4, h5, h6, p, span, label, div[data-testid="stMetricValue"], .stTabs [data-baseweb="tab"] div {
+        color: #1E293B !important;
+    }
+
     .stat-card {
         background: white; border-radius: 12px; border: 1px solid #E2E8F0;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); margin-bottom: 1.5rem;
-        height: 240px; display: flex; flex-direction: column; overflow: hidden;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); margin-bottom: 1rem;
+        min-height: 180px; height: auto; 
+        display: flex; flex-direction: column; overflow: hidden;
     }
     .card-header {
-        padding: 12px; color: white; font-weight: 700; font-size: 1.1rem;
+        padding: 10px; color: #FFFFFF !important; font-weight: 700; font-size: 1rem;
         text-align: center; display: flex; align-items: center; justify-content: center; gap: 8px;
     }
     .header-red { background: linear-gradient(135deg, #EF4444, #991B1B); }
     .header-orange { background: linear-gradient(135deg, #F59E0B, #92400E); }
     .header-blue { background: linear-gradient(135deg, #3B82F6, #1E40AF); }
     .header-green { background: linear-gradient(135deg, #10B981, #065F46); }
-    .card-body { padding: 15px; overflow-y: auto; flex-grow: 1; background: #FFFFFF; }
+    .card-body { padding: 12px; overflow-y: auto; flex-grow: 1; background: #FFFFFF; }
     .name-tag {
-        display: inline-block; background: #F1F5F9; color: #1E293B; padding: 4px 12px;
-        border-radius: 8px; margin: 4px; font-size: 0.9rem; border: 1px solid #CBD5E1; font-weight: 600;
+        display: inline-block; background: #F1F5F9; color: #1E293B !important; padding: 4px 10px;
+        border-radius: 8px; margin: 3px; font-size: 0.85rem; border: 1px solid #CBD5E1; font-weight: 600;
     }
-    .stTabs [data-baseweb="tab"] { font-size: 1.15rem; font-weight: 600; padding: 15px 20px; }
+    .stTabs [data-baseweb="tab"] { font-size: 1rem; font-weight: 600; padding: 10px 15px; }
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     </style>
@@ -149,7 +158,6 @@ def process_excel_only(file):
         sOverdue = l_sub.iloc[0]['逾放比'] if not l_sub.empty else 0
         eLoanRatio = get_v(m_sub, '貸放比', True)
         
-        # ✅ 使用安全除法計算成長率
         memGrowth = safe_div((eM - sM), sM)
         shrGrowth = safe_div((eS - sS), sS)
 
@@ -169,16 +177,12 @@ def process_excel_only(file):
             'sM_total': sM, 'sS_total': sS
         })
 
-    # ✅ 建立 DataFrame 後清除所有潛在的 NaN，確保繪圖與計算不會崩潰
-    final_df = pd.DataFrame(rows)
-    final_df = final_df.fillna(0)
-
+    final_df = pd.DataFrame(rows).fillna(0)
     return final_df, df_m, df_l
 
 # --- 側邊欄與資料載入邏輯 ---
 st.sidebar.markdown("## ⚙️ 決策數據中心")
 
-# 登出按鈕
 if st.sidebar.button("🚪 登出系統"):
     st.session_state["logged_in"] = False
     st.rerun()
@@ -191,7 +195,6 @@ shared_file = query_params.get("file")
 data_loaded = False
 data, df_m, df_l = None, None, None
 
-# 情境 A：透過分享網址進入
 if shared_file:
     st.sidebar.info(f"📁 正在從雲端載入數據...")
     try:
@@ -203,13 +206,11 @@ if shared_file:
     except Exception as e:
         st.sidebar.error("❌ 檔案讀取失敗，可能是連結已失效。")
 
-# 情境 B：一般進入 (顯示上傳介面)
 else:
     uploaded_file = st.sidebar.file_uploader("匯入 Excel 檔案", type=["xlsx"])
     
     if uploaded_file:
         try:
-            # 嘗試執行資料解析
             data, df_m, df_l = process_excel_only(uploaded_file)
             data_loaded = True
             st.sidebar.success("✅ 檔案解析成功！")
@@ -219,7 +220,6 @@ else:
             if st.sidebar.button("🚀 生成即時分享連結"):
                 with st.spinner("正在安全加密並上傳至雲端..."):
                     file_bytes = uploaded_file.getvalue()
-                    # 生成 8 碼的安全隨機檔名，避開中文字與覆蓋問題
                     safe_filename = f"report_{uuid.uuid4().hex[:8]}.xlsx"
                     
                     try:
@@ -229,8 +229,7 @@ else:
                             file_options={"content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "x-upsert": "true"}
                         )
                         
-                        # ⚠️ 注意：這行請務必換成您實際部署到 Streamlit 的網址
-                        app_base_url = "https://8asdxeziyl2ozfrmkpzof3.streamlit.app/" 
+                        app_base_url = "https://8asdxeziyl2ozfrmkpzof3.streamlit.app" 
                         share_url = f"{app_base_url}/?file={safe_filename}"
                         
                         st.sidebar.success("✅ 上傳成功！")
@@ -240,10 +239,9 @@ else:
                         st.sidebar.error(f"上傳失敗：{e}")
 
         except Exception as e:
-            # 如果發生錯誤 (如找不到 Sheet、欄位名稱不對等)，顯示友善的錯誤訊息
             st.sidebar.error("❌ 檔案讀取失敗！")
             st.sidebar.warning("請確保上傳的 Excel 包含「社務及資金運用情形」與「放款及逾期放款」兩個資料表，且格式正確。")
-            st.stop() # 阻擋程式繼續往下跑，避免畫面產生亂碼或紅字崩潰
+            st.stop() 
 
 # --- 主畫面渲染 ---
 if data_loaded:
@@ -281,13 +279,20 @@ if data_loaded:
                                  color_discrete_map={
                                      '🚨 高風險列管': '#EF4444', '⚠️ 流動性緊繃': '#F59E0B',
                                      '💤 資金閒置': '#3B82F6', '✅ 穩健模範': '#10B981', '📊 一般狀態': '#94A3B8'
-                                 }, size_max=40, height=600)
+                                 }, size_max=25, height=550)
         
-        fig_scatter.add_hline(y=0.1, line_dash="dot", line_color="red", annotation_text="高風險紅線 (10%)")
-        fig_scatter.add_vline(x=0.9, line_dash="dot", line_color="orange", annotation_text="緊繃線 (90%)")
-        fig_scatter.add_vline(x=0.3, line_dash="dot", line_color="blue", annotation_text="閒置線 (30%)")
+        fig_scatter.add_hline(y=0.1, line_dash="dot", line_color="red", annotation_text="高風險(10%)")
+        fig_scatter.add_vline(x=0.9, line_dash="dot", line_color="orange", annotation_text="緊繃(90%)")
+        fig_scatter.add_vline(x=0.3, line_dash="dot", line_color="blue", annotation_text="閒置(30%)")
         
-        fig_scatter.update_layout(xaxis_tickformat='.1%', yaxis_tickformat='.1%', plot_bgcolor="white")
+        fig_scatter.update_layout(
+            xaxis_tickformat='.1%', 
+            yaxis_tickformat='.1%', 
+            plot_bgcolor="white",
+            legend=dict(orientation="h", yanchor="top", y=-0.15, xanchor="center", x=0.5),
+            margin=dict(l=10, r=20, t=30, b=10) # 壓縮四周留白
+        )
+        
         fig_scatter.update_xaxes(showgrid=True, gridwidth=1, gridcolor='#F1F5F9')
         fig_scatter.update_yaxes(showgrid=True, gridwidth=1, gridcolor='#F1F5F9')
         st.plotly_chart(fig_scatter, use_container_width=True)
@@ -302,15 +307,20 @@ if data_loaded:
             
             st.markdown(f"#### 【{target_society}】目前狀態：`{target_data['診斷狀態']}`")
             
-            metrics = ['貸放比', '儲蓄率', '逾放比(末)', '收支比', '社員成長率(12M)', '股金成長率(12M)']
-            target_vals = [target_data[m] for m in metrics]
-            avg_vals = [global_avg[m] for m in metrics]
+            metrics = ['貸放比', '儲蓄率', '逾放比(末)', '收支比', '社員成長率', '股金成長率']
+            target_vals = [target_data['貸放比'], target_data['儲蓄率'], target_data['逾放比(末)'], target_data['收支比'], target_data['社員成長率(12M)'], target_data['股金成長率(12M)']]
+            avg_vals = [global_avg['貸放比'], global_avg['儲蓄率'], global_avg['逾放比(末)'], global_avg['收支比'], global_avg['社員成長率(12M)'], global_avg['股金成長率(12M)']]
             
             fig_bar = go.Figure(data=[
                 go.Bar(name=target_society, x=metrics, y=target_vals, marker_color='#3B82F6'),
                 go.Bar(name='全區平均', x=metrics, y=avg_vals, marker_color='#CBD5E1')
             ])
-            fig_bar.update_layout(barmode='group', height=450, yaxis_tickformat='.1%', plot_bgcolor="white", title="關鍵指標與區域基準對比")
+            fig_bar.update_layout(
+                barmode='group', height=450, yaxis_tickformat='.1%', plot_bgcolor="white", 
+                title="關鍵指標與區域基準對比",
+                legend=dict(orientation="h", yanchor="top", y=-0.15, xanchor="center", x=0.5),
+                margin=dict(l=10, r=10, t=40, b=10) # 壓縮四周留白
+            )
             fig_bar.update_yaxes(showgrid=True, gridwidth=1, gridcolor='#F1F5F9')
             st.plotly_chart(fig_bar, use_container_width=True)
 
@@ -325,7 +335,7 @@ if data_loaded:
                 '提撥率': '{:.2%}', '收支比': '{:.2%}', '現有社員': '{:,}', '現有股金': '${:,.0f}'
             }), use_container_width=True, height=550
         )
-        st.download_button("📥 一鍵匯出 AI 診斷報表 (CSV)", final_table.to_csv(index=False).encode('utf-8-sig'), "儲互社經營診斷報告.csv", "text/csv")
+        st.download_button("📥 一鍵匯出 CSV", final_table.to_csv(index=False).encode('utf-8-sig'), "診斷報告.csv", "text/csv")
 
     with t5:
         st.markdown("### 📈 歷史趨勢對比 (含區域基準線)")
@@ -344,7 +354,13 @@ if data_loaded:
                 fig = px.line(plot_data, x='年月', y=y_col, color='社名', title=title, markers=True, color_discrete_map={'—— 區域基準 ——': '#1E293B'})
                 fig.for_each_trace(lambda t: t.update(line=dict(dash='dash', width=3)) if t.name == '—— 區域基準 ——' else ())
                 if is_pct: fig.update_layout(yaxis_tickformat='.1%')
-                fig.update_layout(hovermode="x unified", plot_bgcolor="white")
+                
+                fig.update_layout(
+                    hovermode="x unified", 
+                    plot_bgcolor="white",
+                    legend=dict(orientation="h", yanchor="top", y=-0.2, xanchor="center", x=0.5),
+                    margin=dict(l=10, r=20, t=40, b=10) # 壓縮四周留白
+                )
                 st.plotly_chart(fig, use_container_width=True)
 
             c1, c2 = st.columns(2)
