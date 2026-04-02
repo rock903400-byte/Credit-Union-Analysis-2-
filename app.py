@@ -39,7 +39,7 @@ if "logged_in" not in st.session_state:
 
 # 如果尚未登入，顯示登入畫面並阻擋後續程式碼執行
 if not st.session_state["logged_in"]:
-    # 使用 vh 與 clamp() 讓字體與間距在手機自適應縮小，桌機放大
+    # 標題與文字保持置中
     st.markdown("""
         <div style="text-align: center; margin-top: 8vh; margin-bottom: 2rem;">
             <h1 style="font-size: clamp(3rem, 8vw, 4rem);">🏦</h1>
@@ -48,8 +48,11 @@ if not st.session_state["logged_in"]:
         </div>
     """, unsafe_allow_html=True)
     
-    st.text_input("密碼", type="password", key="password_input", label_visibility="collapsed", placeholder="請輸入密碼")
-    st.button("🔓 登入系統", on_click=check_password, use_container_width=True)
+    # 🌟 關鍵修正：利用 1:2:1 的比例把密碼框夾在中間，限制電腦版的過度延展
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        st.text_input("密碼", type="password", key="password_input", label_visibility="collapsed", placeholder="請輸入密碼")
+        st.button("🔓 登入系統", on_click=check_password, use_container_width=True)
     
     st.stop() # 阻擋程式繼續往下跑
 
