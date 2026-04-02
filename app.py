@@ -39,18 +39,18 @@ if "logged_in" not in st.session_state:
 
 # 如果尚未登入，顯示登入畫面並阻擋後續程式碼執行
 if not st.session_state["logged_in"]:
+    # 使用 vh 與 clamp() 讓字體與間距在手機自適應縮小，桌機放大
     st.markdown("""
-        <div style="text-align: center; margin-top: 100px;">
-            <h1 style="font-size: 4rem;">🏦</h1>
-            <h1 style="color: #1E293B;">儲互社雲端決策中心</h1>
-            <p style="color: #64748B; font-size: 1.2rem;">請輸入系統存取密碼以繼續</p>
+        <div style="text-align: center; margin-top: 8vh; margin-bottom: 2rem;">
+            <h1 style="font-size: clamp(3rem, 8vw, 4rem);">🏦</h1>
+            <h1 style="color: #1E293B; font-size: clamp(1.8rem, 5vw, 2.5rem);">儲互社雲端決策中心</h1>
+            <p style="color: #64748B; font-size: clamp(0.9rem, 3vw, 1.2rem);">請輸入系統存取密碼以繼續</p>
         </div>
     """, unsafe_allow_html=True)
     
-    col1, col2, col3 = st.columns([1, 1.5, 1])
-    with col2:
-        st.text_input("密碼", type="password", key="password_input", label_visibility="collapsed", placeholder="請輸入密碼")
-        st.button("🔓 登入系統", on_click=check_password, use_container_width=True)
+    # 取消使用 columns，讓輸入框與按鈕在手機上可以自然撐滿寬度
+    st.text_input("密碼", type="password", key="password_input", label_visibility="collapsed", placeholder="請輸入密碼")
+    st.button("🔓 登入系統", on_click=check_password, use_container_width=True)
     
     st.stop() # 阻擋程式繼續往下跑
 
@@ -68,29 +68,30 @@ def init_supabase() -> Client:
 supabase = init_supabase()
 BUCKET_NAME = "excel-reports"
 
-# --- 自定義 CSS ---
+# --- 自定義 CSS (已優化手機版彈性高度與字體) ---
 st.markdown("""
     <style>
     .stApp { background-color: #F8FAFC; }
     .stat-card {
         background: white; border-radius: 12px; border: 1px solid #E2E8F0;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); margin-bottom: 1.5rem;
-        height: 240px; display: flex; flex-direction: column; overflow: hidden;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); margin-bottom: 1rem;
+        min-height: 180px; height: auto; 
+        display: flex; flex-direction: column; overflow: hidden;
     }
     .card-header {
-        padding: 12px; color: white; font-weight: 700; font-size: 1.1rem;
+        padding: 10px; color: white; font-weight: 700; font-size: 1rem;
         text-align: center; display: flex; align-items: center; justify-content: center; gap: 8px;
     }
     .header-red { background: linear-gradient(135deg, #EF4444, #991B1B); }
     .header-orange { background: linear-gradient(135deg, #F59E0B, #92400E); }
     .header-blue { background: linear-gradient(135deg, #3B82F6, #1E40AF); }
     .header-green { background: linear-gradient(135deg, #10B981, #065F46); }
-    .card-body { padding: 15px; overflow-y: auto; flex-grow: 1; background: #FFFFFF; }
+    .card-body { padding: 12px; overflow-y: auto; flex-grow: 1; background: #FFFFFF; }
     .name-tag {
-        display: inline-block; background: #F1F5F9; color: #1E293B; padding: 4px 12px;
-        border-radius: 8px; margin: 4px; font-size: 0.9rem; border: 1px solid #CBD5E1; font-weight: 600;
+        display: inline-block; background: #F1F5F9; color: #1E293B; padding: 4px 10px;
+        border-radius: 8px; margin: 3px; font-size: 0.85rem; border: 1px solid #CBD5E1; font-weight: 600;
     }
-    .stTabs [data-baseweb="tab"] { font-size: 1.15rem; font-weight: 600; padding: 15px 20px; }
+    .stTabs [data-baseweb="tab"] { font-size: 1rem; font-weight: 600; padding: 10px 15px; }
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     </style>
@@ -310,7 +311,12 @@ if data_loaded:
                 go.Bar(name=target_society, x=metrics, y=target_vals, marker_color='#3B82F6'),
                 go.Bar(name='全區平均', x=metrics, y=avg_vals, marker_color='#CBD5E1')
             ])
-            fig_bar.update_layout(barmode='group', height=450, yaxis_tickformat='.1%', plot_bgcolor="white", title="關鍵指標與區域基準對比")
+            # 手機版圖例優化
+            fig_bar.update_layout(
+                barmode='group', height=450, yaxis_tickformat='.1%', plot_bgcolor="white", 
+                title="關鍵指標與區域基準對比",
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+            )
             fig_bar.update_yaxes(showgrid=True, gridwidth=1, gridcolor='#F1F5F9')
             st.plotly_chart(fig_bar, use_container_width=True)
 
@@ -344,7 +350,13 @@ if data_loaded:
                 fig = px.line(plot_data, x='年月', y=y_col, color='社名', title=title, markers=True, color_discrete_map={'—— 區域基準 ——': '#1E293B'})
                 fig.for_each_trace(lambda t: t.update(line=dict(dash='dash', width=3)) if t.name == '—— 區域基準 ——' else ())
                 if is_pct: fig.update_layout(yaxis_tickformat='.1%')
-                fig.update_layout(hovermode="x unified", plot_bgcolor="white")
+                
+                # 手機版圖例優化
+                fig.update_layout(
+                    hovermode="x unified", 
+                    plot_bgcolor="white",
+                    legend=dict(orientation="h", yanchor="top", y=-0.2, xanchor="center", x=0.5)
+                )
                 st.plotly_chart(fig, use_container_width=True)
 
             c1, c2 = st.columns(2)
