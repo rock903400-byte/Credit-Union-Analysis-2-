@@ -166,7 +166,7 @@ else:
                         file_options={"content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "x-upsert": "true"}
                     )
                     
-                    app_base_url = "http://localhost:8501" 
+                    app_base_url = "8asdxeziyl2ozfrmkpzof3.streamlit.app" 
                     share_url = f"{app_base_url}/?file={safe_filename}"
                     
                     st.sidebar.success("✅ 上傳成功！")
