@@ -61,9 +61,12 @@ html, body, [data-testid="stAppViewContainer"] {{
 /* 強制填滿版面：當側邊欄收起時，右側內容自動擴張至 100% */
 [data-testid="stMainBlockContainer"] {{
     max-width: 100% !important;
-    padding-left: 2rem !important;
-    padding-right: 2rem !important;
-    padding-top: 2rem !important;
+    padding: 1.5rem !important; /* 減少邊距以適應手機 */
+}}
+
+@media (max-width: 640px) {{
+    [data-testid="stMainBlockContainer"] {{ padding: 1rem !important; }}
+    .stat-card {{ min-height: auto !important; }}
 }}
 
 /* 側邊欄外觀 */
