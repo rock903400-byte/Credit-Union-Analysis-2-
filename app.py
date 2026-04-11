@@ -324,6 +324,16 @@ with t5:
             fig = px.line(plot_df, x="年月", y=col, color="社名", markers=True)
             apply_chart_style(fig, title)
             st.plotly_chart(fig, use_container_width=True)
-        r1, r2 = st.columns(2); with r1: trend("社員數", "👥 社員數趨勢"); with r2: trend("貸放比", "💰 貸放比趨勢")
-        r3, r4 = st.columns(2); with r3: trend("儲蓄率", "🏦 儲蓄率趨勢"); with r4: trend("逾放比", "⚠️ 逾放比趨勢")
+        r1, r2 = st.columns(2)
+        with r1:
+            trend("社員數", "👥 社員數趨勢")
+        with r2:
+            trend("貸放比", "💰 貸放比趨勢")
+            
+        r3, r4 = st.columns(2)
+        with r3:
+            trend("儲蓄率", "🏦 儲蓄率趨勢")
+        with r4:
+            trend("逾放比", "⚠️ 逾放比趨勢")
+            
         trend("收支比", "📈 收支比趨勢")
