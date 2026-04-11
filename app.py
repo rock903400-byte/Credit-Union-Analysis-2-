@@ -251,7 +251,7 @@ if not st.session_state["logged_in"]:
     _, col, _ = st.columns([0.8, 2.4, 0.8])
     with col:
         with st.container(border=True):
-            st.markdown("<h2 style='text-align:center; white-space: nowrap;'>🏦 儲互社雲端決策中心</h2>", unsafe_allow_html=True)
+            st.markdown("<h2 style='text-align:center;'>🏦 儲互社雲端決策中心</h2>", unsafe_allow_html=True)
             if st.session_state.get("preload_err"): 
                 st.markdown(f'<div class="alert-box alert-error">⚠️ 無法讀取雲端資料，請確認連結。</div>', unsafe_allow_html=True)
             if st.session_state["locked"]: 
@@ -305,7 +305,7 @@ if not data_loaded:
 # ──────────────────────────────────────────────
 # 📈 視覺化儀表板
 # ──────────────────────────────────────────────
-st.markdown(f"<h1 style='font-size: 2.2rem; white-space: nowrap;'>📊 {st.session_state['assigned_region'] or '全台'} 儲互社決策中心</h1>", unsafe_allow_html=True)
+st.markdown(f"<h1 style='font-size: 2.2rem;'>📊 {st.session_state['assigned_region'] or '全台'} 儲互社決策中心</h1>", unsafe_allow_html=True)
 
 with st.sidebar:
     st.markdown("<hr>", unsafe_allow_html=True)
