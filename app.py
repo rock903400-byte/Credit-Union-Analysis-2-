@@ -89,8 +89,12 @@ html, body, [data-testid="stAppViewContainer"] {{
 .name-tag {{ display: inline-block; background: #F1F5F9; color: #1A202C !important; padding: 3px 10px; border-radius: 8px; margin: 3px; font-size: .82rem; border: 1px solid #CBD5E1; font-weight: 600; }}
 .badge-admin {{ background: #DCFCE7; color: #166534 !important; border-radius: 8px; padding: 8px; text-align: center; font-size: .9rem; font-weight: 700; border: 1px solid #86EFAC; margin-bottom: 1rem; }}
 .badge-viewer {{ background: #FEF3C7; color: #92400E !important; border-radius: 8px; padding: 8px; text-align: center; font-size: .9rem; font-weight: 700; border: 1px solid #FCD34D; margin-bottom: 1rem; }}
-.sidebar-label {{ font-size: 0.85rem; font-weight: 600; color: #94A3B8; margin-bottom: 0.5rem; display: block; }}
+.sidebar-label { font-size: 0.85rem; font-weight: 600; color: #94A3B8; margin-bottom: 0.5rem; display: block; }
+.alert-box { padding: 12px; border-radius: 10px; margin-bottom: 1rem; font-size: 0.9rem; font-weight: 600; border: 1px solid transparent; }
+.alert-error { background-color: #FEF2F2; color: #991B1B; border-color: #FEE2E2; }
+.alert-warning { background-color: #FFFBEB; color: #92400E; border-color: #FEF3C7; }
 </style>
+
 """, unsafe_allow_html=True)
 
 # ──────────────────────────────────────────────
@@ -245,10 +249,13 @@ if not st.session_state["logged_in"]:
     with col:
         with st.container(border=True):
             st.markdown("<h2 style='text-align:center; white-space: nowrap;'>🏦 儲互社雲端決策中心</h2>", unsafe_allow_html=True)
-            if st.session_state.get("preload_err"): st.error("⚠️ 無法讀取雲端資料，請確認連結。")
-            if st.session_state["locked"]: st.error("🔒 嘗試次數過多，請稍後再試。")
+            if st.session_state.get("preload_err"): 
+                st.markdown(f'<div class="alert-box alert-error">⚠️ 無法讀取雲端資料，請確認連結。</div>', unsafe_allow_html=True)
+            if st.session_state["locked"]: 
+                st.markdown(f'<div class="alert-box alert-error">🔒 嘗試次數過多，請稍後再試。</div>', unsafe_allow_html=True)
             else:
-                if st.session_state["login_attempts"] > 0: st.warning("❌ 密碼錯誤")
+                if st.session_state["login_attempts"] > 0: 
+                    st.markdown(f'<div class="alert-box alert-warning">❌ 密碼錯誤 ({st.session_state["login_attempts"]}/{CONFIG["MAX_ATTEMPTS"]})</div>', unsafe_allow_html=True)
                 st.text_input("密碼", type="password", key="pwd_input", label_visibility="collapsed", placeholder="請輸入密碼")
                 st.button("🔓 登入系統", use_container_width=True, on_click=handle_login)
     st.stop()
