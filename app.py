@@ -59,10 +59,27 @@ html, body, [data-testid="stAppViewContainer"] {{
 }}
 
 /* 強制填滿版面：當側邊欄收起時，右側內容自動擴張至 100% */
-[data-testid="stMainBlockContainer"] {{
+[data-testid="stMainBlockContainer"] {
     max-width: 100% !important;
-    padding: 1.5rem !important; /* 減少邊距以適應手機 */
-}}
+    padding-top: 4rem !important; /* 增加頂部間距，確保標題不貼邊 */
+    padding-left: 1.5rem !important;
+    padding-right: 1.5rem !important;
+    padding-bottom: 1.5rem !important;
+}
+
+/* 標題樣式優化 */
+.responsive-h1 { 
+    font-size: 2.25rem; 
+    font-weight: 700; 
+    margin-bottom: 2rem !important; 
+    color: #1E293B;
+}
+.responsive-h2 { 
+    font-size: 1.75rem; 
+    font-weight: 700; 
+    margin-bottom: 1.5rem !important; 
+    color: #1E293B;
+}
 
 @media (max-width: 640px) {{
     [data-testid="stMainBlockContainer"] {{ 
