@@ -348,7 +348,12 @@ def handle_login():
     else:
         matched_region = None
         for region, pw in regional_pws.items():
-            if entered == str(pw):
+            # 確保比對時忽略可能的結尾 .0 或空白
+            target_pw = str(pw).strip()
+            if target_pw.endswith('.0'):
+                target_pw = target_pw[:-2]
+                
+            if entered == target_pw:
                 matched_region = region
                 break
         
