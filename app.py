@@ -65,8 +65,14 @@ html, body, [data-testid="stAppViewContainer"] {{
 }}
 
 @media (max-width: 640px) {{
-    [data-testid="stMainBlockContainer"] {{ padding: 1rem !important; }}
+    [data-testid="stMainBlockContainer"] {{ 
+        padding-left: 1rem !important; 
+        padding-right: 1rem !important; 
+        padding-top: 4rem !important; /* 增加頂部間距，避免被遮蓋 */
+    }}
     .stat-card {{ min-height: auto !important; }}
+    .responsive-h1 {{ font-size: 1.5rem !important; }} /* 手機版主標題縮小 */
+    .responsive-h2 {{ font-size: 1.25rem !important; }} /* 手機版登入標題縮小 */
 }}
 
 /* 側邊欄外觀 */
@@ -251,7 +257,7 @@ if not st.session_state["logged_in"]:
     _, col, _ = st.columns([0.8, 2.4, 0.8])
     with col:
         with st.container(border=True):
-            st.markdown("<h2 style='text-align:center;'>🏦 儲互社雲端決策中心</h2>", unsafe_allow_html=True)
+            st.markdown("<h2 class='responsive-h2' style='text-align:center;'>🏦 儲互社雲端決策中心</h2>", unsafe_allow_html=True)
             if st.session_state.get("preload_err"): 
                 st.markdown(f'<div class="alert-box alert-error">⚠️ 無法讀取雲端資料，請確認連結。</div>', unsafe_allow_html=True)
             if st.session_state["locked"]: 
@@ -305,7 +311,7 @@ if not data_loaded:
 # ──────────────────────────────────────────────
 # 📈 視覺化儀表板
 # ──────────────────────────────────────────────
-st.markdown(f"<h1 style='font-size: 2.2rem;'>📊 {st.session_state['assigned_region'] or '全台'} 儲互社決策中心</h1>", unsafe_allow_html=True)
+st.markdown(f"<h1 class='responsive-h1'>📊 {st.session_state['assigned_region'] or '全台'} 儲互社決策中心</h1>", unsafe_allow_html=True)
 
 with st.sidebar:
     st.markdown("<hr>", unsafe_allow_html=True)
