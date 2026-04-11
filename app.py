@@ -89,10 +89,10 @@ html, body, [data-testid="stAppViewContainer"] {{
 .name-tag {{ display: inline-block; background: #F1F5F9; color: #1A202C !important; padding: 3px 10px; border-radius: 8px; margin: 3px; font-size: .82rem; border: 1px solid #CBD5E1; font-weight: 600; }}
 .badge-admin {{ background: #DCFCE7; color: #166534 !important; border-radius: 8px; padding: 8px; text-align: center; font-size: .9rem; font-weight: 700; border: 1px solid #86EFAC; margin-bottom: 1rem; }}
 .badge-viewer {{ background: #FEF3C7; color: #92400E !important; border-radius: 8px; padding: 8px; text-align: center; font-size: .9rem; font-weight: 700; border: 1px solid #FCD34D; margin-bottom: 1rem; }}
-.sidebar-label { font-size: 0.85rem; font-weight: 600; color: #94A3B8; margin-bottom: 0.5rem; display: block; }
-.alert-box { padding: 12px; border-radius: 10px; margin-bottom: 1rem; font-size: 0.9rem; font-weight: 600; border: 1px solid transparent; }
-.alert-error { background-color: #FEF2F2; color: #991B1B; border-color: #FEE2E2; }
-.alert-warning { background-color: #FFFBEB; color: #92400E; border-color: #FEF3C7; }
+.sidebar-label {{ font-size: 0.85rem; font-weight: 600; color: #94A3B8; margin-bottom: 0.5rem; display: block; }}
+.alert-box {{ padding: 12px; border-radius: 10px; margin-bottom: 1rem; font-size: 0.9rem; font-weight: 600; border: 1px solid transparent; }}
+.alert-error {{ background-color: #FEF2F2; color: #991B1B; border-color: #FEE2E2; }}
+.alert-warning {{ background-color: #FFFBEB; color: #92400E; border-color: #FEF3C7; }}
 </style>
 
 """, unsafe_allow_html=True)
