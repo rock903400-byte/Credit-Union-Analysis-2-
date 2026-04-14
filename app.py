@@ -210,6 +210,10 @@ def process_excel_final(file_bytes: bytes):
     df_m_raw["儲蓄率"] = pd.to_numeric(df_m_raw["儲蓄率"], errors="coerce").fillna(0) / 100
     df_l_raw["逾放比"] = pd.to_numeric(df_l_raw["逾放比"], errors="coerce").fillna(0)
     df_l_raw["收支比"] = pd.to_numeric(df_l_raw["收支比"], errors="coerce").fillna(0) / 100
+    if "提撥率" in df_l_raw.columns:
+        df_l_raw["提撥率"] = pd.to_numeric(df_l_raw["提撥率"], errors="coerce").fillna(0) / 100
+    else:
+        df_l_raw["提撥率"] = 0.0
 
     df_m = df_m_raw.dropna(subset=["年月"]).sort_values(["社號", "年月"])
     df_l = df_l_raw.dropna(subset=["年月"]).sort_values(["社號", "年月"])
@@ -241,6 +245,7 @@ def process_excel_final(file_bytes: bytes):
             "現有社員": eM, "社員成長率(12M)": memG, "現有股金": eS, "股金成長率(12M)": shrG,
             "貸放比": eLoan, "儲蓄率": float(ms.iloc[-1]["儲蓄率"]),
             "逾放比(初)": sOvd, "逾放比(末)": eOvd, "收支比": float(ls.iloc[-1]["收支比"]) if not ls.empty else 0.0,
+            "提撥率": float(ls.iloc[-1]["提撥率"]) if not ls.empty else 0.0,
             "_sM": sM, "_sS": sS
         })
     return pd.DataFrame(rows).fillna(0), df_m, df_l, region_pw_map
@@ -383,15 +388,15 @@ with tab_hc:
         for i, (k, v) in enumerate([("現有社員", f"{int(row['現有社員']):,}人"), ("現有股金", f"${row['現有股金']:,.0f}"), ("逾放比", f"{row['逾放比(末)']:.2%}"), ("收支比", f"{row['收支比']:.2%}")]): cols[i].metric(k, v)
 
 with tab_rp:
-    fmt = {"現有社員": "{:,}", "現有股金": "${:,.0f}", "社員成長率(12M)": "{:.2%}", "股金成長率(12M)": "{:.2%}", "貸放比": "{:.1%}", "逾放比(初)": "{:.2%}", "逾放比(末)": "{:.2%}", "收支比": "{:.2%}"}
+    fmt = {"現有社員": "{:,}", "現有股金": "${:,.0f}", "社員成長率(12M)": "{:.2%}", "股金成長率(12M)": "{:.2%}", "貸放比": "{:.1%}", "逾放比(初)": "{:.2%}", "逾放比(末)": "{:.2%}", "收支比": "{:.2%}", "提撥率": "{:.2%}"}
     def highlight(row): return ['background-color: #FEF2F2; color: #991B1B; font-weight: bold' if "高風險" in str(row["診斷狀態"]) else '' for _ in row]
     df_export = data.drop(columns=["_sM", "_sS"])
-    cols_order = ["社號", "社名", "區域", "診斷狀態", "現有社員", "社員成長率(12M)", "現有股金", "股金成長率(12M)", "貸放比", "儲蓄率", "逾放比(初)", "逾放比(末)", "收支比"]
+    cols_order = ["社號", "社名", "區域", "診斷狀態", "現有社員", "社員成長率(12M)", "現有股金", "股金成長率(12M)", "貸放比", "儲蓄率", "逾放比(初)", "逾放比(末)", "收支比", "提撥率"]
     st.dataframe(df_export[cols_order].style.apply(highlight, axis=1).format(fmt), use_container_width=True, height=600)
     st.download_button("📥 匯出 CSV", df_export[cols_order].to_csv(index=False).encode("utf-8-sig"), "report.csv", "text/csv")
 
 with tab_tr:
-    df_all = pd.merge(df_m, df_l[["年月", "社號", "逾放比", "收支比"]], on=["年月", "社號"], how="left")
+    df_all = pd.merge(df_m, df_l[["年月", "社號", "逾放比", "收支比", "提撥率"]], on=["年月", "社號"], how="left")
     sel = st.multiselect("加入比較社別", data["社名"].unique(), [data["社名"].iloc[0]])
     if sel:
         plot_df = df_all[df_all["社名"].isin(sel)]
@@ -405,4 +410,6 @@ with tab_tr:
         r3, r4 = st.columns(2)
         with r3: trend("儲蓄率", "🏦 儲蓄率趨勢")
         with r4: trend("逾放比", "⚠️ 逾放比趨勢")
-        trend("收支比", "📈 收支比趨勢")
+        r5, r6 = st.columns(2)
+        with r5: trend("收支比", "📈 收支比趨勢")
+        with r6: trend("提撥率", "🛡️ 提撥率趨勢")
