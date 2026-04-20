@@ -1,5 +1,5 @@
 """
-儲互社雲端決策中心 — 2026 官方正式部署版 (UI & 版面極致優化版)
+儲互社分析系統 — 2026 官方正式部署版 (UI & 版面極致優化版)
 """
 
 import io
@@ -43,7 +43,7 @@ logger = logging.getLogger(__name__)
 # 🎨 頁面與樣式設定
 # ──────────────────────────────────────────────
 st.set_page_config(
-    page_title="儲互社決策分析中心",
+    page_title="儲互社分析系統",
     layout="wide", # 預設寬螢幕
     page_icon="🏦",
     initial_sidebar_state="collapsed",
@@ -279,7 +279,7 @@ if not st.session_state["logged_in"]:
     _, col, _ = st.columns([0.8, 2.4, 0.8])
     with col:
         with st.container(border=True):
-            st.markdown("<h2 class='responsive-h2' style='text-align:center;'>🏦 儲互社雲端決策中心</h2>", unsafe_allow_html=True)
+            st.markdown("<h2 class='responsive-h2' style='text-align:center;'>🏦 儲互社分析系統</h2>", unsafe_allow_html=True)
             if st.session_state.get("preload_err"): 
                 st.markdown(f'<div class="alert-box alert-error">⚠️ 無法讀取雲端資料，請確認連結。</div>', unsafe_allow_html=True)
             if st.session_state["locked"]: 
@@ -327,13 +327,13 @@ elif IS_ADMIN:
             except Exception as e: st.error(f"❌ 解析失敗: {e}")
 
 if not data_loaded:
-    st.info("👋 歡迎使用決策中心！請由側邊欄上傳 Excel 檔案或點擊分享連結。")
+    st.info("👋 歡迎使用分析系統！請由側邊欄上傳 Excel 檔案或點擊分享連結。")
     st.stop()
 
 # ──────────────────────────────────────────────
 # 📈 視覺化儀表板
 # ──────────────────────────────────────────────
-st.markdown(f"<h1 class='responsive-h1'>📊 {st.session_state['assigned_region'] or '全台'} 儲互社決策中心</h1>", unsafe_allow_html=True)
+st.markdown(f"<h1 class='responsive-h1'>📊 {st.session_state['assigned_region'] or '全台'} 儲互社分析系統</h1>", unsafe_allow_html=True)
 
 with st.sidebar:
     st.markdown("<hr>", unsafe_allow_html=True)
