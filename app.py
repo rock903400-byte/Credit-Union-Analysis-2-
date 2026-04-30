@@ -419,7 +419,7 @@ with tab_tr:
             
         plot_df = pd.concat(plot_dfs, ignore_index=True)
 
-        def trend(col, title):
+        def trend(col, title, is_pct=True):
             fig = px.line(plot_df, x="年月", y=col, color="社名", markers=True, color_discrete_map={"整體平均": "#1E293B"})
             
             # 將整體平均線設為粗虛線以利辨識
@@ -428,11 +428,11 @@ with tab_tr:
                     trace.line.dash = 'dash'
                     trace.line.width = 3
                     
-            apply_chart_style(fig, title)
+            apply_chart_style(fig, title, is_pct)
             st.plotly_chart(fig, use_container_width=True)
             
         r1, r2 = st.columns(2)
-        with r1: trend("社員數", "👥 社員數趨勢")
+        with r1: trend("社員數", "👥 社員數趨勢", is_pct=False)
         with r2: trend("貸放比", "💰 貸放比趨勢")
         r3, r4 = st.columns(2)
         with r3: trend("儲蓄率", "🏦 儲蓄率趨勢")
