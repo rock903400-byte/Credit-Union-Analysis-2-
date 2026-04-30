@@ -397,13 +397,40 @@ with tab_rp:
 
 with tab_tr:
     df_all = pd.merge(df_m, df_l[["年月", "社號", "逾放比", "收支比", "提撥率"]], on=["年月", "社號"], how="left")
-    sel = st.multiselect("加入比較社別", data["社名"].unique(), [data["社名"].iloc[0]])
-    if sel:
-        plot_df = df_all[df_all["社名"].isin(sel)]
+    
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        sel = st.multiselect("加入比較社別", data["社名"].unique(), [data["社名"].iloc[0]])
+    with col2:
+        st.write("") # 排版微調
+        show_avg = st.checkbox("📈 顯示整體平均", value=False)
+
+    if sel or show_avg:
+        plot_dfs = []
+        
+        if sel:
+            plot_dfs.append(df_all[df_all["社名"].isin(sel)])
+            
+        if show_avg:
+            # 動態計算每個月的整體平均值
+            avg_df = df_all.groupby("年月")[["社員數", "貸放比", "儲蓄率", "逾放比", "收支比", "提撥率"]].mean().reset_index()
+            avg_df["社名"] = "整體平均" # 給予一個虛擬的社名作為圖例
+            plot_dfs.append(avg_df)
+            
+        plot_df = pd.concat(plot_dfs, ignore_index=True)
+
         def trend(col, title):
-            fig = px.line(plot_df, x="年月", y=col, color="社名", markers=True)
+            fig = px.line(plot_df, x="年月", y=col, color="社名", markers=True, color_discrete_map={"整體平均": "#1E293B"})
+            
+            # 將整體平均線設為粗虛線以利辨識
+            for trace in fig.data:
+                if trace.name == "整體平均":
+                    trace.line.dash = 'dash'
+                    trace.line.width = 3
+                    
             apply_chart_style(fig, title)
             st.plotly_chart(fig, use_container_width=True)
+            
         r1, r2 = st.columns(2)
         with r1: trend("社員數", "👥 社員數趨勢")
         with r2: trend("貸放比", "💰 貸放比趨勢")
