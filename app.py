@@ -217,6 +217,7 @@ def apply_chart_style(fig, title="", is_pct=True):
         plot_bgcolor=CONFIG["THEME_BG"],
         paper_bgcolor=CONFIG["THEME_BG"],
         hovermode="x unified",
+        dragmode=False, # 禁用拖曳與縮放，防止手機滑動時誤觸
         legend=dict(
             orientation="h", 
             yanchor="top", 
@@ -229,8 +230,8 @@ def apply_chart_style(fig, title="", is_pct=True):
         font=dict(size=16), # 全域圖表字體放大
         **kw
     )
-    fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor="rgba(0,0,0,0.05)", tickfont=dict(size=14))
-    fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor="rgba(0,0,0,0.05)", tickfont=dict(size=14))
+    fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor="rgba(0,0,0,0.05)", tickfont=dict(size=14), fixedrange=True)
+    fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor="rgba(0,0,0,0.05)", tickfont=dict(size=14), fixedrange=True)
     return fig
 
 # ──────────────────────────────────────────────
@@ -423,11 +424,20 @@ with tab_ov:
 
 with tab_mx:
     T = CONFIG["THRESHOLDS"]
-    fig = px.scatter(data, x="貸放比", y="逾放比(末)", color="診斷狀態", size="現有社員", hover_name="社名", height=600, color_discrete_map={
+    show_labels = st.checkbox("🏷️ 在圖表上直接顯示社名", value=False)
+    
+    fig = px.scatter(data, x="貸放比", y="逾放比(末)", color="診斷狀態", size="現有社員", hover_name="社名", 
+                     text="社名" if show_labels else None,
+                     height=600, color_discrete_map={
         "🚨 高風險列管": "#EF4444", "⚠️ 流動性緊繃": "#F59E0B", "💤 資金閒置": "#3B82F6", "✅ 穩健模範": "#10B981", "📊 一般狀態": "#94A3B8"
     })
-    # 增加點的基礎大小與邊框，方便長輩看見與點擊
-    fig.update_traces(marker=dict(sizeref=data["現有社員"].max()/1500, line=dict(width=1, color='DarkSlateGrey')))
+    
+    # 增加點的基礎大小與邊框
+    trace_kw = dict(marker=dict(sizeref=data["現有社員"].max()/1500, line=dict(width=1, color='DarkSlateGrey')))
+    if show_labels:
+        trace_kw.update(textposition='top center', textfont=dict(size=14))
+    
+    fig.update_traces(**trace_kw)
     fig.add_hline(y=T["high_risk_ovd"], line_dash="dot", line_color="red")
     fig.add_vline(x=T["liquidity_loan"], line_dash="dot", line_color="orange")
     apply_chart_style(fig)
@@ -450,7 +460,10 @@ with tab_rp:
     def highlight(row): return ['background-color: #FEF2F2; color: #991B1B; font-weight: bold' if "高風險" in str(row["診斷狀態"]) else '' for _ in row]
     df_export = data.drop(columns=["_sM", "_sS"])
     cols_order = ["社號", "社名", "區域", "診斷狀態", "現有社員", "社員成長數(12M)", "社員成長率(12M)", "現有股金", "股金成長率(12M)", "貸放比", "儲蓄率", "逾放比(初)", "逾放比(末)", "收支比", "提撥率"]
-    st.dataframe(df_export[cols_order].style.apply(highlight, axis=1).format(fmt), use_container_width=True, height=600)
+    
+    # 透過 Pandas Styler 強制放大表格內文字，方便長輩閱讀
+    styled_df = df_export[cols_order].style.apply(highlight, axis=1).format(fmt).set_properties(**{'font-size': '18px', 'padding': '10px'})
+    st.dataframe(styled_df, use_container_width=True, height=600)
     st.download_button("📥 匯出 CSV", df_export[cols_order].to_csv(index=False).encode("utf-8-sig"), "report.csv", "text/csv")
 
 with tab_tr:
