@@ -52,16 +52,19 @@ st.set_page_config(
 st.markdown(f"""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;600;700&display=swap');
+
+/* 全域基礎字體放大 (針對長輩優化) */
 html, body, [data-testid="stAppViewContainer"] {{ 
     font-family: 'Noto Sans TC', sans-serif !important; 
     background-color: {CONFIG['THEME_BG']} !important; 
-    color: #1A202C !important; 
+    color: #1A202C !important;
+    font-size: 18px !important; 
 }}
 
-/* 強制填滿版面：當側邊欄收起時，右側內容自動擴張至 100% */
+/* 強制填滿版面 */
 [data-testid="stMainBlockContainer"] {{
     max-width: 100% !important;
-    padding-top: 4rem !important; /* 增加頂部間距，確保標題不貼邊 */
+    padding-top: 4rem !important;
     padding-left: 1.5rem !important;
     padding-right: 1.5rem !important;
     padding-bottom: 1.5rem !important;
@@ -69,27 +72,70 @@ html, body, [data-testid="stAppViewContainer"] {{
 
 /* 標題樣式優化 */
 .responsive-h1 {{ 
-    font-size: 2.25rem; 
+    font-size: 2.5rem; 
     font-weight: 700; 
     margin-bottom: 2rem !important; 
     color: #1E293B;
 }}
 .responsive-h2 {{ 
-    font-size: 1.75rem; 
+    font-size: 2rem; 
     font-weight: 700; 
     margin-bottom: 1.5rem !important; 
     color: #1E293B;
 }}
 
+/* 按鈕、輸入框、下拉選單加大 (肥手指友善) */
+.stButton > button {{
+    min-height: 52px !important;
+    font-size: 18px !important;
+    border-radius: 12px !important;
+    font-weight: 600 !important;
+}}
+.stTextInput input {{
+    min-height: 52px !important;
+    font-size: 18px !important;
+    border-radius: 12px !important;
+}}
+[data-baseweb="select"] {{
+    min-height: 52px !important;
+    font-size: 18px !important;
+}}
+
+/* 頁籤文字放大 */
+.stTabs [data-baseweb="tab"] {{
+    font-size: 18px !important;
+    font-weight: 600 !important;
+    padding: 10px 20px !important;
+}}
+
+/* 指標卡片數字放大 */
+[data-testid="stMetricValue"] {{
+    font-size: 2.2rem !important;
+    font-weight: 700 !important;
+}}
+[data-testid="stMetricLabel"] {{
+    font-size: 1.1rem !important;
+    font-weight: 600 !important;
+}}
+
+/* 表格字體放大 */
+[data-testid="stDataFrame"] {{
+    font-size: 16px !important;
+}}
+
 @media (max-width: 640px) {{
+    html, body, [data-testid="stAppViewContainer"] {{ 
+        font-size: 16px !important; 
+    }}
     [data-testid="stMainBlockContainer"] {{ 
-        padding-left: 1rem !important; 
-        padding-right: 1rem !important; 
-        padding-top: 4rem !important; /* 增加頂部間距，避免被遮蓋 */
+        padding-left: 0.8rem !important; 
+        padding-right: 0.8rem !important; 
+        padding-top: 3.5rem !important;
     }}
     .stat-card {{ min-height: auto !important; }}
-    .responsive-h1 {{ font-size: 1.5rem !important; }} /* 手機版主標題縮小 */
-    .responsive-h2 {{ font-size: 1.25rem !important; }} /* 手機版登入標題縮小 */
+    .responsive-h1 {{ font-size: 1.8rem !important; }}
+    .responsive-h2 {{ font-size: 1.5rem !important; }}
+    [data-testid="stMetricValue"] {{ font-size: 1.8rem !important; }}
 }}
 
 /* 側邊欄外觀 */
@@ -99,6 +145,7 @@ html, body, [data-testid="stAppViewContainer"] {{
 [data-testid="stSidebar"] .stButton > button {{
     background: #334155; color: #E2E8F0 !important; border: 1px solid #475569; border-radius: 10px;
     padding: 0.5rem 1rem; font-weight: 600; width: 100%; transition: all 0.2s;
+    min-height: 48px !important;
 }}
 [data-testid="stSidebar"] .stButton > button:hover {{ background: #475569; border-color: #64748B; transform: translateY(-1px); }}
 
@@ -107,16 +154,16 @@ html, body, [data-testid="stAppViewContainer"] {{
 
 [data-testid="stVerticalBlockBorderWrapper"] {{ border-radius: 20px !important; background: white !important; padding: 1.5rem !important; box-shadow: 0 10px 25px rgba(0,0,0,0.05) !important; }}
 .stat-card {{ background: white; border-radius: 14px; border: 1px solid #E2E8F0; margin-bottom: 1rem; min-height: 180px; display: flex; flex-direction: column; overflow: hidden; }}
-.card-header {{ padding: 10px; color: #FFF !important; font-weight: 700; text-align: center; }}
+.card-header {{ padding: 12px; color: #FFF !important; font-weight: 700; text-align: center; font-size: 1.1rem; }}
 .hdr-red {{ background: linear-gradient(135deg, #EF4444, #991B1B); }}
 .hdr-orange {{ background: linear-gradient(135deg, #F59E0B, #92400E); }}
 .hdr-blue {{ background: linear-gradient(135deg, #3B82F6, #1E40AF); }}
 .hdr-green {{ background: linear-gradient(135deg, #10B981, #065F46); }}
-.name-tag {{ display: inline-block; background: #F1F5F9; color: #1A202C !important; padding: 3px 10px; border-radius: 8px; margin: 3px; font-size: .82rem; border: 1px solid #CBD5E1; font-weight: 600; }}
-.badge-admin {{ background: #DCFCE7; color: #166534 !important; border-radius: 8px; padding: 8px; text-align: center; font-size: .9rem; font-weight: 700; border: 1px solid #86EFAC; margin-bottom: 1rem; }}
-.badge-viewer {{ background: #FEF3C7; color: #92400E !important; border-radius: 8px; padding: 8px; text-align: center; font-size: .9rem; font-weight: 700; border: 1px solid #FCD34D; margin-bottom: 1rem; }}
-.sidebar-label {{ font-size: 0.85rem; font-weight: 600; color: #94A3B8; margin-bottom: 0.5rem; display: block; }}
-.alert-box {{ padding: 12px; border-radius: 10px; margin-bottom: 1rem; font-size: 0.9rem; font-weight: 600; border: 1px solid transparent; }}
+.name-tag {{ display: inline-block; background: #F1F5F9; color: #1A202C !important; padding: 5px 12px; border-radius: 10px; margin: 4px; font-size: 1rem; border: 1px solid #CBD5E1; font-weight: 600; }}
+.badge-admin {{ background: #DCFCE7; color: #166534 !important; border-radius: 8px; padding: 10px; text-align: center; font-size: 1rem; font-weight: 700; border: 1px solid #86EFAC; margin-bottom: 1rem; }}
+.badge-viewer {{ background: #FEF3C7; color: #92400E !important; border-radius: 8px; padding: 10px; text-align: center; font-size: 1rem; font-weight: 700; border: 1px solid #FCD34D; margin-bottom: 1rem; }}
+.sidebar-label {{ font-size: 1rem; font-weight: 600; color: #94A3B8; margin-bottom: 0.5rem; display: block; }}
+.alert-box {{ padding: 15px; border-radius: 10px; margin-bottom: 1rem; font-size: 1rem; font-weight: 600; border: 1px solid transparent; }}
 .alert-error {{ background-color: #FEF2F2; color: #991B1B; border-color: #FEE2E2; }}
 .alert-warning {{ background-color: #FFFBEB; color: #92400E; border-color: #FEF3C7; }}
 </style>
@@ -166,15 +213,24 @@ def convert_minguo_date(val):
 def apply_chart_style(fig, title="", is_pct=True):
     kw = dict(yaxis_tickformat=".1%") if is_pct else {}
     fig.update_layout(
-        title=title, 
-        plot_bgcolor=CONFIG["THEME_BG"], # 讓圖表內部背景與網頁一致
-        paper_bgcolor=CONFIG["THEME_BG"], # 讓圖表外框背景與網頁一致
+        title=dict(text=title, font=dict(size=22)), 
+        plot_bgcolor=CONFIG["THEME_BG"],
+        paper_bgcolor=CONFIG["THEME_BG"],
         hovermode="x unified",
-        legend=dict(orientation="h", yanchor="top", y=-0.2, xanchor="center", x=0.5),
-        margin=dict(l=10, r=20, t=40, b=10), **kw
+        legend=dict(
+            orientation="h", 
+            yanchor="top", 
+            y=-0.25, 
+            xanchor="center", 
+            x=0.5,
+            font=dict(size=14)
+        ),
+        margin=dict(l=5, r=5, t=50, b=50), # 縮小邊距，適合手機
+        font=dict(size=16), # 全域圖表字體放大
+        **kw
     )
-    fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor="rgba(0,0,0,0.05)")
-    fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor="rgba(0,0,0,0.05)")
+    fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor="rgba(0,0,0,0.05)", tickfont=dict(size=14))
+    fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor="rgba(0,0,0,0.05)", tickfont=dict(size=14))
     return fig
 
 # ──────────────────────────────────────────────
@@ -370,6 +426,8 @@ with tab_mx:
     fig = px.scatter(data, x="貸放比", y="逾放比(末)", color="診斷狀態", size="現有社員", hover_name="社名", height=600, color_discrete_map={
         "🚨 高風險列管": "#EF4444", "⚠️ 流動性緊繃": "#F59E0B", "💤 資金閒置": "#3B82F6", "✅ 穩健模範": "#10B981", "📊 一般狀態": "#94A3B8"
     })
+    # 增加點的基礎大小與邊框，方便長輩看見與點擊
+    fig.update_traces(marker=dict(sizeref=data["現有社員"].max()/1500, line=dict(width=1, color='DarkSlateGrey')))
     fig.add_hline(y=T["high_risk_ovd"], line_dash="dot", line_color="red")
     fig.add_vline(x=T["liquidity_loan"], line_dash="dot", line_color="orange")
     apply_chart_style(fig)
