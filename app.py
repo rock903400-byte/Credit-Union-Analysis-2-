@@ -456,7 +456,7 @@ with tab_hc:
         for i, (k, v) in enumerate([("現有社員", f"{int(row['現有社員']):,}人"), ("現有股金", f"${row['現有股金']:,.0f}"), ("逾放比", f"{row['逾放比(末)']:.2%}"), ("收支比", f"{row['收支比']:.2%}")]): cols[i].metric(k, v)
 
 with tab_rp:
-    fmt = {"現有社員": "{:,}", "社員成長數(12M)": "{:+,.0f}", "現有股金": "${:,.0f}", "社員成長率(12M)": "{:.2%}", "股金成長率(12M)": "{:.2%}", "貸放比": "{:.1%}", "逾放比(初)": "{:.2%}", "逾放比(末)": "{:.2%}", "收支比": "{:.2%}", "提撥率": "{:.2%}"}
+    fmt = {"現有社員": "{:,}", "社員成長數(12M)": "{:+,.0f}", "現有股金": "${:,.0f}", "社員成長率(12M)": "{:.2%}", "股金成長率(12M)": "{:.2%}", "貸放比": "{:.1%}", "儲蓄率": "{:.1%}", "逾放比(初)": "{:.2%}", "逾放比(末)": "{:.2%}", "收支比": "{:.2%}", "提撥率": "{:.2%}"}
     def highlight(row): return ['background-color: #FEF2F2; color: #991B1B; font-weight: bold' if "高風險" in str(row["診斷狀態"]) else '' for _ in row]
     df_export = data.drop(columns=["_sM", "_sS"])
     cols_order = ["社號", "社名", "區域", "診斷狀態", "現有社員", "社員成長數(12M)", "社員成長率(12M)", "現有股金", "股金成長率(12M)", "貸放比", "儲蓄率", "逾放比(初)", "逾放比(末)", "收支比", "提撥率"]
@@ -464,7 +464,14 @@ with tab_rp:
     # 透過 Pandas Styler 強制放大表格內文字，方便長輩閱讀
     styled_df = df_export[cols_order].style.apply(highlight, axis=1).format(fmt).set_properties(**{'font-size': '18px', 'padding': '10px'})
     st.dataframe(styled_df, use_container_width=True, height=600)
-    st.download_button("📥 匯出 CSV", df_export[cols_order].to_csv(index=False).encode("utf-8-sig"), "report.csv", "text/csv")
+
+    # 為了讓匯出的 CSV 內容也包含格式化後的字串（例如百分比），建立一個專門用於下載的 DataFrame
+    df_download = df_export[cols_order].copy()
+    for col, pattern in fmt.items():
+        if col in df_download.columns:
+            df_download[col] = df_download[col].apply(lambda x: pattern.format(x) if pd.notnull(x) else "")
+    
+    st.download_button("📥 匯出 CSV", df_download.to_csv(index=False).encode("utf-8-sig"), "report.csv", "text/csv")
 
 with tab_tr:
     df_all = pd.merge(df_m, df_l[["年月", "社號", "逾放比", "收支比", "提撥率"]], on=["年月", "社號"], how="left")
