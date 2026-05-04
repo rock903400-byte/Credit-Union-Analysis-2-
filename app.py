@@ -260,15 +260,22 @@ def classify(p):
     # 條件 5：股金連續三年逐年負成長 (S0 < S1 < S2 < S3)
     c5 = (p["S0"] < p["S1"]) and (p["S1"] < p["S2"]) and (p["S2"] < p["S3"])
 
+    reasons = []
+    if c1: reasons.append("連兩年虧損")
+    if c2: reasons.append("貸放比過低")
+    if c3: reasons.append("高逾放且惡化")
+    if c4: reasons.append("人數連三年衰退")
+    if c5: reasons.append("股金連三年衰退")
+
     # 各項情形二項(含)以上者就納入高風險
-    if (int(c1) + int(c2) + int(c3) + int(c4) + int(c5)) >= 2:
-        return "🚨 高風險列管"
+    if len(reasons) >= 2:
+        return "🚨 高風險列管", "、".join(reasons)
 
     # 原有邏輯：判斷其他狀態
-    if p["eLoan"] > T["liquidity_loan"] and p["shrG"] < 0: return "⚠️ 流動性緊繃"
-    if p["eLoan"] < T["idle_loan"] and p["eOvd"] < T["ovd_safe_line"]: return "💤 資金閒置"
-    if p["memG"] > 0 and p["shrG"] > 0 and T["stable_loan_min"] < p["eLoan"] < T["stable_loan_max"] and p["eOvd"] < T["ovd_safe_line"]: return "✅ 穩健模範"
-    return "📊 一般狀態"
+    if p["eLoan"] > T["liquidity_loan"] and p["shrG"] < 0: return "⚠️ 流動性緊繃", ""
+    if p["eLoan"] < T["idle_loan"] and p["eOvd"] < T["ovd_safe_line"]: return "💤 資金閒置", ""
+    if p["memG"] > 0 and p["shrG"] > 0 and T["stable_loan_min"] < p["eLoan"] < T["stable_loan_max"] and p["eOvd"] < T["ovd_safe_line"]: return "✅ 穩健模範", ""
+    return "📊 一般狀態", ""
 
 @st.cache_data(show_spinner="🚀 正在執行智慧分析...")
 def process_excel_final(file_bytes: bytes):
@@ -337,10 +344,12 @@ def process_excel_final(file_bytes: bytes):
             "R0": R0, "R1": R1, "O0": O0, "O1": O1,
             "eOvd": eOvd, "sOvd": sOvd, "eLoan": eLoan, "memG": memG, "shrG": shrG
         }
+        
+        status, reason = classify(p)
 
         rows.append({
             "社號": s_no, "社名": name, "區域": region_map.get(name, "未分類"),
-            "診斷狀態": classify(p),
+            "診斷狀態": status, "高風險觸發原因": reason,
             "現有社員": M0, "社員成長數(12M)": M0 - M1, "社員成長率(12M)": memG, "現有股金": S0, "股金成長率(12M)": shrG,
             "貸放比": eLoan, "儲蓄率": float(ms.iloc[-1]["儲蓄率"]),
             "逾放比(初)": sOvd, "逾放比(末)": eOvd, "收支比": R0,
@@ -496,8 +505,9 @@ with tab_ov:
 with tab_mx:
     T = CONFIG["THRESHOLDS"]
     show_labels = st.checkbox("🏷️ 在圖表上直接顯示社名", value=False)
-    
+
     fig = px.scatter(data, x="貸放比", y="逾放比(末)", color="診斷狀態", size="現有社員", hover_name="社名", 
+                     hover_data=["高風險觸發原因"],
                      text="社名" if show_labels else None,
                      height=600, color_discrete_map={
         "🚨 高風險列管": "#EF4444", "⚠️ 流動性緊繃": "#F59E0B", "💤 資金閒置": "#3B82F6", "✅ 穩健模範": "#10B981", "📊 一般狀態": "#94A3B8"
@@ -520,6 +530,8 @@ with tab_hc:
     if target:
         row = data[data["社名"]==target].iloc[0]
         st.markdown(f"#### 【{target}】 狀態：`{row['診斷狀態']}`")
+        if row["高風險觸發原因"]:
+            st.markdown(f'<div class="alert-box alert-error">🚩 觸發項目：{row["高風險觸發原因"]}</div>', unsafe_allow_html=True)
         KEYS = ["貸放比", "儲蓄率", "逾放比(末)", "收支比", "社員成長率(12M)", "股金成長率(12M)"]
         
         # 決定平均值的計算來源與標籤
@@ -539,7 +551,7 @@ with tab_rp:
     fmt = {"現有社員": "{:,}", "社員成長數(12M)": "{:+,.0f}", "現有股金": "${:,.0f}", "社員成長率(12M)": "{:.2%}", "股金成長率(12M)": "{:.2%}", "貸放比": "{:.1%}", "儲蓄率": "{:.1%}", "逾放比(初)": "{:.2%}", "逾放比(末)": "{:.2%}", "收支比": "{:.2%}", "提撥率": "{:.2%}"}
     def highlight(row): return ['background-color: #FEF2F2; color: #991B1B; font-weight: bold' if "高風險" in str(row["診斷狀態"]) else '' for _ in row]
     df_export = data.drop(columns=["_sM", "_sS"])
-    cols_order = ["社號", "社名", "區域", "診斷狀態", "現有社員", "社員成長數(12M)", "社員成長率(12M)", "現有股金", "股金成長率(12M)", "貸放比", "儲蓄率", "逾放比(初)", "逾放比(末)", "收支比", "提撥率"]
+    cols_order = ["社號", "社名", "區域", "診斷狀態", "高風險觸發原因", "現有社員", "社員成長數(12M)", "社員成長率(12M)", "現有股金", "股金成長率(12M)", "貸放比", "儲蓄率", "逾放比(初)", "逾放比(末)", "收支比", "提撥率"]
     
     # 透過 Pandas Styler 強制放大表格內文字，方便長輩閱讀
     styled_df = df_export[cols_order].style.apply(highlight, axis=1).format(fmt).set_properties(**{'font-size': '18px', 'padding': '10px'})
