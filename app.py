@@ -391,6 +391,7 @@ elif IS_ADMIN:
                 raw_bytes = uploaded.getvalue()
                 data, df_m, df_l, region_pws = process_excel_final(raw_bytes)
                 st.session_state["preloaded_passwords"] = region_pws
+                st.session_state["preloaded_data"] = (data, df_m, df_l, raw_bytes)
                 data_loaded = True
                 st.success("✅ 檔案解析成功")
                 st.markdown("<hr>", unsafe_allow_html=True)
