@@ -375,7 +375,8 @@ def process_excel_final(file_bytes: bytes):
             "收支比": curr_R,
             "提撥率": float(ls.iloc[-1]["提撥率"]) if not ls.empty else 0.0,
             "_sM": M0, "_sS": S0
-        })    return pd.DataFrame(rows).fillna(0), df_m, df_l, pw_to_info
+        })
+    return pd.DataFrame(rows).fillna(0), df_m, df_l, pw_to_info
 
 # ──────────────────────────────────────────────
 # 🔒 存取控管
