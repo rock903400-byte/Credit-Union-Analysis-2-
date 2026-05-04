@@ -33,6 +33,9 @@ CONFIG = {
         "stable_loan_min":  st.secrets.get("thresholds", {}).get("stable_loan_min", 0.4),
         "stable_loan_max":  st.secrets.get("thresholds", {}).get("stable_loan_max", 0.8),
         "ovd_safe_line":    st.secrets.get("thresholds", {}).get("ovd_safe_line", 0.02),
+        "high_risk_income_ratio": st.secrets.get("thresholds", {}).get("high_risk_income_ratio", 1.0),
+        "high_risk_loan_ratio":   st.secrets.get("thresholds", {}).get("high_risk_loan_ratio", 0.1),
+        "high_risk_ovd_ratio":    st.secrets.get("thresholds", {}).get("high_risk_ovd_ratio", 0.5),
     }
 }
 
@@ -238,12 +241,33 @@ def apply_chart_style(fig, title="", is_pct=True):
 # ──────────────────────────────────────────────
 # 🧠 決策分析引擎
 # ──────────────────────────────────────────────
-def classify(eOvd, sOvd, eLoan, shrG, memG):
+def classify(p):
+    """
+    p: 包含各項指標點的字典 (T0=最新, T1=一年前, T2=兩年前, T3=三年前)
+    包含: M0-M3 (社員), S0-S3 (股金), R0-R1 (收支比), O0-O1 (逾期貸款金額), 
+         eOvd (逾放比), eLoan (貸放比), shrG, memG, sOvd
+    """
     T = CONFIG["THRESHOLDS"]
-    if eOvd > sOvd and eOvd > T["high_risk_ovd"]: return "🚨 高風險列管"
-    if eLoan > T["liquidity_loan"] and shrG < 0: return "⚠️ 流動性緊繃"
-    if eLoan < T["idle_loan"] and eOvd < T["ovd_safe_line"]: return "💤 資金閒置"
-    if memG > 0 and shrG > 0 and T["stable_loan_min"] < eLoan < T["stable_loan_max"] and eOvd < T["ovd_safe_line"]: return "✅ 穩健模範"
+    
+    # 條件 1：兩年連續本期損益為負數 (收支比 > 100%)
+    c1 = (p["R0"] > T["high_risk_income_ratio"]) and (p["R1"] > T["high_risk_income_ratio"])
+    # 條件 2：貸放比低於門檻 (預設 10%)
+    c2 = p["eLoan"] < T["high_risk_loan_ratio"]
+    # 條件 3：逾期放款比率高於門檻 (預設 50%) 且逾期金額較前一年增加
+    c3 = (p["eOvd"] > T["high_risk_ovd_ratio"]) and (p["O0"] > p["O1"])
+    # 條件 4：社員人數連續三年負成長 (M0 < M1 < M2 < M3)
+    c4 = (p["M0"] < p["M1"]) and (p["M1"] < p["M2"]) and (p["M2"] < p["M3"])
+    # 條件 5：股金連續三年逐年負成長 (S0 < S1 < S2 < S3)
+    c5 = (p["S0"] < p["S1"]) and (p["S1"] < p["S2"]) and (p["S2"] < p["S3"])
+
+    # 各項情形二項(含)以上者就納入高風險
+    if (int(c1) + int(c2) + int(c3) + int(c4) + int(c5)) >= 2:
+        return "🚨 高風險列管"
+
+    # 原有邏輯：判斷其他狀態
+    if p["eLoan"] > T["liquidity_loan"] and p["shrG"] < 0: return "⚠️ 流動性緊繃"
+    if p["eLoan"] < T["idle_loan"] and p["eOvd"] < T["ovd_safe_line"]: return "💤 資金閒置"
+    if p["memG"] > 0 and p["shrG"] > 0 and T["stable_loan_min"] < p["eLoan"] < T["stable_loan_max"] and p["eOvd"] < T["ovd_safe_line"]: return "✅ 穩健模範"
     return "📊 一般狀態"
 
 @st.cache_data(show_spinner="🚀 正在執行智慧分析...")
@@ -271,6 +295,7 @@ def process_excel_final(file_bytes: bytes):
     for col in ["社員數", "股金", "貸放比"]: df_m_raw[col] = pd.to_numeric(df_m_raw[col], errors="coerce").fillna(0)
     df_m_raw["儲蓄率"] = pd.to_numeric(df_m_raw["儲蓄率"], errors="coerce").fillna(0) / 100
     df_l_raw["逾放比"] = pd.to_numeric(df_l_raw["逾放比"], errors="coerce").fillna(0)
+    df_l_raw["逾期貸款"] = pd.to_numeric(df_l_raw["逾期貸款"], errors="coerce").fillna(0)
     df_l_raw["收支比"] = pd.to_numeric(df_l_raw["收支比"], errors="coerce").fillna(0) / 100
     if "提撥率" in df_l_raw.columns:
         df_l_raw["提撥率"] = pd.to_numeric(df_l_raw["提撥率"], errors="coerce").fillna(0) / 100
@@ -279,7 +304,10 @@ def process_excel_final(file_bytes: bytes):
 
     df_m = df_m_raw.dropna(subset=["年月"]).sort_values(["社號", "年月"])
     df_l = df_l_raw.dropna(subset=["年月"]).sort_values(["社號", "年月"])
-    max_d, old_d = df_m["年月"].max(), df_m["年月"].max() - pd.DateOffset(months=12)
+    
+    # 定義年度時間點 (T0=最新, T1=一年前, T2=兩年前, T3=三年前)
+    max_d = df_m["年月"].max()
+    T0, T1, T2, T3 = max_d, max_d - pd.DateOffset(years=1), max_d - pd.DateOffset(years=2), max_d - pd.DateOffset(years=3)
 
     rows = []
     for s_no in df_m["社號"].unique():
@@ -287,28 +315,37 @@ def process_excel_final(file_bytes: bytes):
         if ms.empty: continue
         name = ms["社名"].iloc[0]
         
-        def latest(df, col, d):
-            val = df[df["年月"]==d][col].values
-            return float(val[0]) if len(val) else float(df.iloc[-1][col])
+        def get_v(df, col, d):
+            if df.empty: return 0.0
+            subset = df[df["年月"] <= d]
+            return float(subset[col].iloc[-1]) if not subset.empty else float(df[col].iloc[0])
         
-        eM = latest(ms, "社員數", max_d)
-        sM = float(ms[ms["年月"]<=old_d]["社員數"].iloc[-1]) if not ms[ms["年月"]<=old_d].empty else float(ms.iloc[0]["社員數"])
-        eS = latest(ms, "股金", max_d)
-        sS = float(ms[ms["年月"]<=old_d]["股金"].iloc[-1])   if not ms[ms["年月"]<=old_d].empty else float(ms.iloc[0]["股金"])
+        # 取得五大指標所需數據
+        M0, M1, M2, M3 = get_v(ms, "社員數", T0), get_v(ms, "社員數", T1), get_v(ms, "社員數", T2), get_v(ms, "社員數", T3)
+        S0, S1, S2, S3 = get_v(ms, "股金", T0),   get_v(ms, "股金", T1),   get_v(ms, "股金", T2),   get_v(ms, "股金", T3)
+        R0, R1 = get_v(ls, "收支比", T0), get_v(ls, "收支比", T1)
+        O0, O1 = get_v(ls, "逾期貸款", T0), get_v(ls, "逾期貸款", T1)
         
-        eOvd = float(ls.iloc[-1]["逾放比"]) if not ls.empty else 0.0
-        sOvd = float(ls.iloc[0]["逾放比"]) if not ls.empty else 0.0
-        eLoan = float(ms.iloc[-1]["貸放比"])
-        memG, shrG = safe_div(eM-sM, sM), safe_div(eS-sS, sS)
+        eOvd = get_v(ls, "逾放比", T0)
+        sOvd = get_v(ls, "逾放比", T1) # 初值改為一年前
+        eLoan = get_v(ms, "貸放比", T0)
+        memG, shrG = safe_div(M0-M1, M1), safe_div(S0-S1, S1)
+
+        p = {
+            "M0": M0, "M1": M1, "M2": M2, "M3": M3,
+            "S0": S0, "S1": S1, "S2": S2, "S3": S3,
+            "R0": R0, "R1": R1, "O0": O0, "O1": O1,
+            "eOvd": eOvd, "sOvd": sOvd, "eLoan": eLoan, "memG": memG, "shrG": shrG
+        }
 
         rows.append({
             "社號": s_no, "社名": name, "區域": region_map.get(name, "未分類"),
-            "診斷狀態": classify(eOvd, sOvd, eLoan, shrG, memG),
-            "現有社員": eM, "社員成長數(12M)": eM - sM, "社員成長率(12M)": memG, "現有股金": eS, "股金成長率(12M)": shrG,
+            "診斷狀態": classify(p),
+            "現有社員": M0, "社員成長數(12M)": M0 - M1, "社員成長率(12M)": memG, "現有股金": S0, "股金成長率(12M)": shrG,
             "貸放比": eLoan, "儲蓄率": float(ms.iloc[-1]["儲蓄率"]),
-            "逾放比(初)": sOvd, "逾放比(末)": eOvd, "收支比": float(ls.iloc[-1]["收支比"]) if not ls.empty else 0.0,
+            "逾放比(初)": sOvd, "逾放比(末)": eOvd, "收支比": R0,
             "提撥率": float(ls.iloc[-1]["提撥率"]) if not ls.empty else 0.0,
-            "_sM": sM, "_sS": sS
+            "_sM": M1, "_sS": S1
         })
     return pd.DataFrame(rows).fillna(0), df_m, df_l, pw_to_info
 
