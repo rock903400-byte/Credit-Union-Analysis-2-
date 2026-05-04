@@ -177,6 +177,7 @@ _DEFAULTS = {
     "logged_in":           False,
     "role":                None,
     "assigned_region":     None,
+    "assigned_union":      None,
     "login_attempts":      0,
     "locked":              False,
     "preloaded_data":      None,
@@ -258,8 +259,12 @@ def process_excel_final(file_bytes: bytes):
     except Exception as e: raise ValueError(f"解析失敗: {e}")
 
     region_map = dict(zip(df_r_raw["社名"], df_r_raw["區域"]))
-    region_pw_map = {str(r).strip(): str(p).strip().replace(".0", "") 
-                     for r, p in zip(df_r_raw["區域"], df_r_raw["密碼"]) if pd.notna(r) and pd.notna(p)}
+    # 建立 密碼 -> {社名, 區域} 的映射，支援單一社專屬登入
+    pw_to_info = {
+        str(p).strip().replace(".0", ""): {"name": str(n).strip(), "region": str(r).strip()}
+        for n, r, p in zip(df_r_raw["社名"], df_r_raw["區域"], df_r_raw["密碼"]) 
+        if pd.notna(n) and pd.notna(r) and pd.notna(p)
+    }
 
     df_m_raw["年月"] = df_m_raw["年月"].apply(convert_minguo_date)
     df_l_raw["年月"] = df_l_raw["年月"].apply(convert_minguo_date)
@@ -305,7 +310,7 @@ def process_excel_final(file_bytes: bytes):
             "提撥率": float(ls.iloc[-1]["提撥率"]) if not ls.empty else 0.0,
             "_sM": sM, "_sS": sS
         })
-    return pd.DataFrame(rows).fillna(0), df_m, df_l, region_pw_map
+    return pd.DataFrame(rows).fillna(0), df_m, df_l, pw_to_info
 
 # ──────────────────────────────────────────────
 # 🔒 存取控管
@@ -323,12 +328,12 @@ def handle_login():
     admin_pw = str(st.secrets.get("admin_password", "666"))
     pws = st.session_state.get("preloaded_passwords", {})
     if entered == admin_pw:
-        st.session_state.update(logged_in=True, role="admin", assigned_region=None)
+        st.session_state.update(logged_in=True, role="admin", assigned_region=None, assigned_union=None)
+    elif entered in pws:
+        info = pws[entered]
+        st.session_state.update(logged_in=True, role="viewer", 
+                                assigned_union=info["name"], assigned_region=info["region"])
     else:
-        for r, p in pws.items():
-            if entered == p:
-                st.session_state.update(logged_in=True, role="viewer", assigned_region=r)
-                return
         st.session_state["login_attempts"] += 1
         if st.session_state["login_attempts"] >= CONFIG["MAX_ATTEMPTS"]: st.session_state["locked"] = True
 
@@ -353,15 +358,29 @@ if not st.session_state["logged_in"]:
 # ──────────────────────────────────────────────
 IS_ADMIN = (st.session_state["role"] == "admin")
 data_loaded = False
+region_data = None # 用於計算區域平均
 
 if shared_file and st.session_state["preloaded_data"]:
     data, df_m, df_l, raw_bytes = st.session_state["preloaded_data"]
     region = st.session_state["assigned_region"]
+    union = st.session_state["assigned_union"]
+    
     if region:
-        data = data[data["區域"] == region].copy()
-        target_snos = data["社號"].unique()
-        df_m = df_m[df_m["社號"].isin(target_snos)].copy()
-        df_l = df_l[df_l["社號"].isin(target_snos)].copy()
+        # 先保存該區域所有社的資料，用於計算平均
+        region_data = data[data["區域"] == region].copy()
+        
+        if union:
+            # 如果是單一社登入，則過濾明細資料只剩自己
+            data = data[data["社名"] == union].copy()
+            target_snos = data["社號"].unique()
+            df_m = df_m[df_m["社號"].isin(target_snos)].copy()
+            df_l = df_l[df_l["社號"].isin(target_snos)].copy()
+        else:
+            # 區域模式 (保留相容性)
+            data = region_data.copy()
+            target_snos = data["社號"].unique()
+            df_m = df_m[df_m["社號"].isin(target_snos)].copy()
+            df_l = df_l[df_l["社號"].isin(target_snos)].copy()
     data_loaded = True
 elif IS_ADMIN:
     with st.sidebar:
@@ -370,7 +389,8 @@ elif IS_ADMIN:
         if uploaded:
             try:
                 raw_bytes = uploaded.getvalue()
-                data, df_m, df_l, _ = process_excel_final(raw_bytes)
+                data, df_m, df_l, region_pws = process_excel_final(raw_bytes)
+                st.session_state["preloaded_passwords"] = region_pws
                 data_loaded = True
                 st.success("✅ 檔案解析成功")
                 st.markdown("<hr>", unsafe_allow_html=True)
@@ -390,13 +410,21 @@ if not data_loaded:
 # ──────────────────────────────────────────────
 # 📈 視覺化儀表板
 # ──────────────────────────────────────────────
-st.markdown(f"<h1 class='responsive-h1'>📊 {st.session_state['assigned_region'] or '全台'} 儲互社分析系統</h1>", unsafe_allow_html=True)
+# 標題顯示：優先顯示社名，否則顯示區域，最末顯示全台
+disp_title = st.session_state["assigned_union"] or st.session_state["assigned_region"] or "全台"
+st.markdown(f"<h1 class='responsive-h1'>📊 {disp_title} 儲互社分析系統</h1>", unsafe_allow_html=True)
 
 with st.sidebar:
     st.markdown("<hr>", unsafe_allow_html=True)
     st.markdown('<span class="sidebar-label">👤 帳號權限</span>', unsafe_allow_html=True)
     badge_cls = "badge-admin" if IS_ADMIN else "badge-viewer"
-    badge_txt = "🔑 管理員模式" if IS_ADMIN else f"👁️ 訪客：{st.session_state['assigned_region']}"
+    # Badge 文字：如果是單一社登入，顯示該社名稱
+    if IS_ADMIN:
+        badge_txt = "🔑 管理員模式"
+    else:
+        disp_name = st.session_state["assigned_union"] or st.session_state["assigned_region"]
+        badge_txt = f"👁️ 訪客：{disp_name}"
+        
     st.markdown(f'<div class="{badge_cls}">{badge_txt}</div>', unsafe_allow_html=True)
     if st.button("🚪 登出系統", use_container_width=True):
         for k, v in _DEFAULTS.items(): st.session_state[k] = v
@@ -408,10 +436,15 @@ with tab_ov:
     c1, c2, c3, c4 = st.columns(4)
     total_mem, total_shr = data["現有社員"].sum(), data["現有股金"].sum()
     prev_mem, prev_shr = data["_sM"].sum(), data["_sS"].sum()
+    
+    # 決定平均值的計算來源：優先使用區域資料，若無則用全台資料
+    avg_src = region_data if region_data is not None else data
+    avg_label = "區域平均" if region_data is not None else "全台平均"
+    
     c1.metric("社員總數", f"{int(total_mem):,}", f"{safe_div(total_mem-prev_mem, prev_mem):.2%}")
     c2.metric("股金總額", f"${total_shr/1e8:.2f} 億", f"{safe_div(total_shr-prev_shr, prev_shr):.2%}")
-    c3.metric("平均收支比", f"{data['收支比'].mean():.2%}")
-    c4.metric("平均逾放比", f"{data['逾放比(末)'].mean():.2%}")
+    c3.metric(f"{avg_label}收支比", f"{avg_src['收支比'].mean():.2%}")
+    c4.metric(f"{avg_label}逾放比", f"{avg_src['逾放比(末)'].mean():.2%}")
     st.markdown("### 狀態雷達監控")
     def render_card(title, key, cls):
         names = data[data["診斷狀態"].str.contains(key)]["社名"].tolist()
@@ -444,13 +477,22 @@ with tab_mx:
     st.plotly_chart(fig, use_container_width=True)
 
 with tab_hc:
-    target = st.selectbox("請選擇儲互社", data["社名"].unique())
+    target_options = data["社名"].unique()
+    target = st.selectbox("請選擇儲互社", target_options)
     if target:
         row = data[data["社名"]==target].iloc[0]
         st.markdown(f"#### 【{target}】 狀態：`{row['診斷狀態']}`")
         KEYS = ["貸放比", "儲蓄率", "逾放比(末)", "收支比", "社員成長率(12M)", "股金成長率(12M)"]
-        fig_bar = go.Figure([go.Bar(name=target, x=KEYS, y=[row[k] for k in KEYS], marker_color="#3B82F6"), go.Bar(name="平均", x=KEYS, y=[data[k].mean() for k in KEYS], marker_color="#CBD5E1")])
-        apply_chart_style(fig_bar, title="指標對比")
+        
+        # 決定平均值的計算來源與標籤
+        avg_src = region_data if region_data is not None else data
+        avg_label = "區域平均" if region_data is not None else "全台平均"
+        
+        fig_bar = go.Figure([
+            go.Bar(name=target, x=KEYS, y=[row[k] for k in KEYS], marker_color="#3B82F6"), 
+            go.Bar(name=avg_label, x=KEYS, y=[avg_src[k].mean() for k in KEYS], marker_color="#CBD5E1")
+        ])
+        apply_chart_style(fig_bar, title=f"指標對比 ({avg_label})")
         st.plotly_chart(fig_bar, use_container_width=True)
         cols = st.columns(4)
         for i, (k, v) in enumerate([("現有社員", f"{int(row['現有社員']):,}人"), ("現有股金", f"${row['現有股金']:,.0f}"), ("逾放比", f"{row['逾放比(末)']:.2%}"), ("收支比", f"{row['收支比']:.2%}")]): cols[i].metric(k, v)
@@ -474,35 +516,55 @@ with tab_rp:
     st.download_button("📥 匯出 CSV", df_download.to_csv(index=False).encode("utf-8-sig"), "report.csv", "text/csv")
 
 with tab_tr:
-    df_all = pd.merge(df_m, df_l[["年月", "社號", "逾放比", "收支比", "提撥率"]], on=["年月", "社號"], how="left")
-    
+    # 準備趨勢圖用的資料：若有區域限制，則平均值應以區域為準
+    if region_data is not None:
+        # 從原始 preloaded_data 中提取該區域所有社的歷史資料
+        _, raw_df_m, raw_df_l, _ = st.session_state["preloaded_data"]
+        reg_snos = region_data["社號"].unique()
+        df_all_full = pd.merge(
+            raw_df_m[raw_df_m["社號"].isin(reg_snos)], 
+            raw_df_l[raw_df_l["社號"].isin(reg_snos)][["年月", "社號", "逾放比", "收支比", "提撥率"]], 
+            on=["年月", "社號"], how="left"
+        )
+        avg_label = "區域平均"
+    else:
+        df_all_full = pd.merge(df_m, df_l[["年月", "社號", "逾放比", "收支比", "提撥率"]], on=["年月", "社號"], how="left")
+        avg_label = "全台平均"
+
     col1, col2 = st.columns([3, 1])
     with col1:
         sel = st.multiselect("加入比較社別", data["社名"].unique(), [data["社名"].iloc[0]])
     with col2:
         st.write("") # 排版微調
-        show_avg = st.checkbox("📈 顯示整體平均", value=False)
+        show_avg = st.checkbox(f"📈 顯示{avg_label}", value=False)
 
     if sel or show_avg:
         plot_dfs = []
         
         if sel:
-            plot_dfs.append(df_all[df_all["社名"].isin(sel)])
+            # 從原始資料中抓取所選社別的歷史
+            _, raw_df_m, raw_df_l, _ = st.session_state["preloaded_data"]
+            sel_df = pd.merge(
+                raw_df_m[raw_df_m["社名"].isin(sel)], 
+                raw_df_l[raw_df_l["社名"].isin(sel)][["年月", "社號", "逾放比", "收支比", "提撥率"]], 
+                on=["年月", "社號"], how="left"
+            )
+            plot_dfs.append(sel_df)
             
         if show_avg:
-            # 動態計算每個月的整體平均值
-            avg_df = df_all.groupby("年月")[["社員數", "貸放比", "儲蓄率", "逾放比", "收支比", "提撥率"]].mean().reset_index()
-            avg_df["社名"] = "整體平均" # 給予一個虛擬的社名作為圖例
+            # 計算平均趨勢
+            avg_df = df_all_full.groupby("年月")[["社員數", "貸放比", "儲蓄率", "逾放比", "收支比", "提撥率"]].mean().reset_index()
+            avg_df["社名"] = avg_label
             plot_dfs.append(avg_df)
             
         plot_df = pd.concat(plot_dfs, ignore_index=True)
 
         def trend(col, title, is_pct=True):
-            fig = px.line(plot_df, x="年月", y=col, color="社名", markers=True, color_discrete_map={"整體平均": "#1E293B"})
+            fig = px.line(plot_df, x="年月", y=col, color="社名", markers=True, color_discrete_map={avg_label: "#1E293B"})
             
-            # 將整體平均線設為粗虛線以利辨識
+            # 將平均線設為粗虛線以利辨識
             for trace in fig.data:
-                if trace.name == "整體平均":
+                if trace.name == avg_label:
                     trace.line.dash = 'dash'
                     trace.line.width = 3
                     
