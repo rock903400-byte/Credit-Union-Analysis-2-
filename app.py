@@ -312,51 +312,70 @@ def process_excel_final(file_bytes: bytes):
     df_m = df_m_raw.dropna(subset=["年月"]).sort_values(["社號", "年月"])
     df_l = df_l_raw.dropna(subset=["年月"]).sort_values(["社號", "年月"])
     
-    # 定義年度時間點 (T0=最新, T1=一年前, T2=兩年前, T3=三年前)
+    # 定義年度時間點 (T0=最新年底, T1=一年前年底...)
     max_d = df_m["年月"].max()
-    T0, T1, T2, T3 = max_d, max_d - pd.DateOffset(years=1), max_d - pd.DateOffset(years=2), max_d - pd.DateOffset(years=3)
+
+    # 強制定位在 12/31，確保分析抓到的是年度結算數據
+    # 找出資料中最新的 12 月份，若無則回退至 max_d
+    dec_dates = df_m[df_m["年月"].dt.month == 12]["年月"]
+    T0 = dec_dates.max() if not dec_dates.empty else max_d
+    T1, T2, T3 = T0 - pd.DateOffset(years=1), T0 - pd.DateOffset(years=2), T0 - pd.DateOffset(years=3)
 
     rows = []
     for s_no in df_m["社號"].unique():
         ms, ls = df_m[df_m["社號"] == s_no], df_l[df_l["社號"] == s_no]
         if ms.empty: continue
         name = ms["社名"].iloc[0]
-        
+
         def get_v(df, col, d):
             if df.empty: return 0.0
             subset = df[df["年月"] <= d]
             return float(subset[col].iloc[-1]) if not subset.empty else float(df[col].iloc[0])
-        
-        # 取得五大指標所需數據
+
+        # 1. 取得「分析判斷用」數據 (強制使用 12 月年底數據)
         M0, M1, M2, M3 = get_v(ms, "社員數", T0), get_v(ms, "社員數", T1), get_v(ms, "社員數", T2), get_v(ms, "社員數", T3)
         S0, S1, S2, S3 = get_v(ms, "股金", T0),   get_v(ms, "股金", T1),   get_v(ms, "股金", T2),   get_v(ms, "股金", T3)
         R0, R1 = get_v(ls, "收支比", T0), get_v(ls, "收支比", T1)
         O0, O1 = get_v(ls, "逾期貸款", T0), get_v(ls, "逾期貸款", T1)
-        
-        eOvd = get_v(ls, "逾放比", T0)
-        sOvd = get_v(ls, "逾放比", T1) # 初值改為一年前
-        eLoan = get_v(ms, "貸放比", T0)
-        memG, shrG = safe_div(M0-M1, M1), safe_div(S0-S1, S1)
+        eOvd_dec = get_v(ls, "逾放比", T0)
+        eLoan_dec = get_v(ms, "貸放比", T0)
+
+        memG_dec, shrG_dec = safe_div(M0-M1, M1), safe_div(S0-S1, S1)
 
         p = {
             "M0": M0, "M1": M1, "M2": M2, "M3": M3,
             "S0": S0, "S1": S1, "S2": S2, "S3": S3,
             "R0": R0, "R1": R1, "O0": O0, "O1": O1,
-            "eOvd": eOvd, "sOvd": sOvd, "eLoan": eLoan, "memG": memG, "shrG": shrG
+            "eOvd": eOvd_dec, "sOvd": get_v(ls, "逾放比", T1), "eLoan": eLoan_dec, "memG": memG_dec, "shrG": shrG_dec
         }
-        
+
         status, reason = classify(p)
+
+        # 2. 取得「介面顯示用」數據 (使用最新上傳資料 max_d，讓使用者看到最新動態)
+        curr_M = get_v(ms, "社員數", max_d)
+        curr_S = get_v(ms, "股金", max_d)
+        curr_eLoan = get_v(ms, "貸放比", max_d)
+        curr_eOvd = get_v(ls, "逾放比", max_d)
+        curr_R = get_v(ls, "收支比", max_d)
+        # 顯示用的成長率改為「最新現況 vs 最近一個年底」
+        memG_curr, shrG_curr = safe_div(curr_M-M0, M0), safe_div(curr_S-S0, S0)
 
         rows.append({
             "社號": s_no, "社名": name, "區域": region_map.get(name, "未分類"),
             "診斷狀態": status, "高風險觸發原因": reason,
-            "現有社員": M0, "社員成長數(12M)": M0 - M1, "社員成長率(12M)": memG, "現有股金": S0, "股金成長率(12M)": shrG,
-            "貸放比": eLoan, "儲蓄率": float(ms.iloc[-1]["儲蓄率"]),
-            "逾放比(初)": sOvd, "逾放比(末)": eOvd, "收支比": R0,
+            "現有社員": curr_M, 
+            "社員成長數(12M)": curr_M - M0, 
+            "社員成長率(12M)": memG_curr, 
+            "現有股金": curr_S, 
+            "股金成長率(12M)": shrG_curr,
+            "貸放比": curr_eLoan, 
+            "儲蓄率": float(ms.iloc[-1]["儲蓄率"]),
+            "逾放比(初)": eOvd_dec, # 以最近年底為初值
+            "逾放比(末)": curr_eOvd, 
+            "收支比": curr_R,
             "提撥率": float(ls.iloc[-1]["提撥率"]) if not ls.empty else 0.0,
-            "_sM": M1, "_sS": S1
-        })
-    return pd.DataFrame(rows).fillna(0), df_m, df_l, pw_to_info
+            "_sM": M0, "_sS": S0
+        })    return pd.DataFrame(rows).fillna(0), df_m, df_l, pw_to_info
 
 # ──────────────────────────────────────────────
 # 🔒 存取控管
