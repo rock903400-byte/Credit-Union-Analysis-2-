@@ -373,6 +373,7 @@ def process_excel_final(file_bytes: bytes):
             "逾放比(初)": eOvd_dec, # 以最近年底為初值
             "逾放比(末)": curr_eOvd, 
             "收支比": curr_R,
+            "收支比(年)": R0,
             "提撥率": float(ls.iloc[-1]["提撥率"]) if not ls.empty else 0.0,
             "_sM": M0, "_sS": S0
         })
@@ -510,7 +511,7 @@ with tab_ov:
     
     c1.metric("社員總數", f"{int(total_mem):,}", f"{safe_div(total_mem-prev_mem, prev_mem):.2%}")
     c2.metric("股金總額", f"${total_shr/1e8:.2f} 億", f"{safe_div(total_shr-prev_shr, prev_shr):.2%}")
-    c3.metric(f"{avg_label}收支比", f"{avg_src['收支比'].mean():.2%}")
+    c3.metric(f"{avg_label}收支比", f"{avg_src['收支比(年)'].mean():.2%}")
     c4.metric(f"{avg_label}逾放比", f"{avg_src['逾放比(末)'].mean():.2%}")
     st.markdown("### 狀態雷達監控")
     def render_card(title, key, cls):
@@ -558,14 +559,18 @@ with tab_hc:
         avg_src = region_data if region_data is not None else data
         avg_label = "區域平均" if region_data is not None else "全台平均"
         
+        # 準備圖表數據：收支比改用年度 (年底) 數據
+        y_val_target = [row[k] if k != "收支比" else row["收支比(年)"] for k in KEYS]
+        y_val_avg = [avg_src[k].mean() if k != "收支比" else avg_src["收支比(年)"].mean() for k in KEYS]
+
         fig_bar = go.Figure([
-            go.Bar(name=target, x=KEYS, y=[row[k] for k in KEYS], marker_color="#3B82F6"), 
-            go.Bar(name=avg_label, x=KEYS, y=[avg_src[k].mean() for k in KEYS], marker_color="#CBD5E1")
+            go.Bar(name=target, x=KEYS, y=y_val_target, marker_color="#3B82F6"), 
+            go.Bar(name=avg_label, x=KEYS, y=y_val_avg, marker_color="#CBD5E1")
         ])
         apply_chart_style(fig_bar, title=f"指標對比 ({avg_label})")
         st.plotly_chart(fig_bar, use_container_width=True)
         cols = st.columns(4)
-        for i, (k, v) in enumerate([("現有社員", f"{int(row['現有社員']):,}人"), ("現有股金", f"${row['現有股金']:,.0f}"), ("逾放比", f"{row['逾放比(末)']:.2%}"), ("收支比", f"{row['收支比']:.2%}")]): cols[i].metric(k, v)
+        for i, (k, v) in enumerate([("現有社員", f"{int(row['現有社員']):,}人"), ("現有股金", f"${row['現有股金']:,.0f}"), ("逾放比", f"{row['逾放比(末)']:.2%}"), ("收支比(年)", f"{row['收支比(年)']:.2%}")]): cols[i].metric(k, v)
 
 with tab_rp:
     fmt = {"現有社員": "{:,}", "社員成長數(12M)": "{:+,.0f}", "現有股金": "${:,.0f}", "社員成長率(12M)": "{:.2%}", "股金成長率(12M)": "{:.2%}", "貸放比": "{:.1%}", "儲蓄率": "{:.1%}", "逾放比(初)": "{:.2%}", "逾放比(末)": "{:.2%}", "收支比": "{:.2%}", "提撥率": "{:.2%}"}
@@ -630,7 +635,9 @@ with tab_tr:
         plot_df = pd.concat(plot_dfs, ignore_index=True)
 
         def trend(col, title, is_pct=True):
-            fig = px.line(plot_df, x="年月", y=col, color="社名", markers=True, color_discrete_map={avg_label: "#1E293B"})
+            # 針對收支比，僅顯示每年 12 月底的資料（因為收入支出多於年末結算）
+            curr_df = plot_df[plot_df["年月"].dt.month == 12] if col == "收支比" else plot_df
+            fig = px.line(curr_df, x="年月", y=col, color="社名", markers=True, color_discrete_map={avg_label: "#1E293B"})
             
             # 將平均線設為粗虛線以利辨識
             for trace in fig.data:
