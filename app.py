@@ -244,12 +244,12 @@ def apply_chart_style(fig, title="", is_pct=True):
 def classify(p):
     """
     p: 包含各項指標點的字典 (T0=最新, T1=一年前, T2=兩年前, T3=三年前)
-    包含: M0-M3 (社員), S0-S3 (股金), R0-R1 (收支比), O0-O1 (逾期貸款金額), 
+    包含: M0-M3 (社員), S0-S3 (股金), R0-R1 (開支比), O0-O1 (逾期貸款金額), 
          eOvd (逾放比), eLoan (貸放比), shrG, memG, sOvd
     """
     T = CONFIG["THRESHOLDS"]
     
-    # 條件 1：兩年連續本期損益為負數 (收支比 > 100%)
+    # 條件 1：兩年連續本期損益為負數 (開支比 > 100%)
     c1 = (p["R0"] > T["high_risk_income_ratio"]) and (p["R1"] > T["high_risk_income_ratio"])
     # 條件 2：貸放比低於門檻 (預設 10%)
     c2 = p["eLoan"] < T["high_risk_loan_ratio"]
@@ -287,6 +287,9 @@ def process_excel_final(file_bytes: bytes):
             df_m_raw = pd.read_excel(xls, sheet_name=S["MAIN"],   dtype={"社號": str, "年月": str})
             df_l_raw = pd.read_excel(xls, sheet_name=S["LOAN"],   dtype={"社號": str, "年月": str})
             df_r_raw = pd.read_excel(xls, sheet_name=S["REGION"], dtype={"社名": str, "區域": str, "密碼": str})
+            
+            # 統一將原始資料中的「收支比」改名為「開支比」
+            df_l_raw = df_l_raw.rename(columns={"收支比": "開支比"})
     except Exception as e: raise ValueError(f"解析失敗: {e}")
 
     region_map = dict(zip(df_r_raw["社名"], df_r_raw["區域"]))
@@ -303,7 +306,7 @@ def process_excel_final(file_bytes: bytes):
     df_m_raw["儲蓄率"] = pd.to_numeric(df_m_raw["儲蓄率"], errors="coerce").fillna(0) / 100
     df_l_raw["逾放比"] = pd.to_numeric(df_l_raw["逾放比"], errors="coerce").fillna(0)
     df_l_raw["逾期貸款"] = pd.to_numeric(df_l_raw["逾期貸款"], errors="coerce").fillna(0)
-    df_l_raw["收支比"] = pd.to_numeric(df_l_raw["收支比"], errors="coerce").fillna(0) / 100
+    df_l_raw["開支比"] = pd.to_numeric(df_l_raw["開支比"], errors="coerce").fillna(0) / 100
     if "提撥率" in df_l_raw.columns:
         df_l_raw["提撥率"] = pd.to_numeric(df_l_raw["提撥率"], errors="coerce").fillna(0) / 100
     else:
@@ -320,6 +323,9 @@ def process_excel_final(file_bytes: bytes):
     dec_dates = df_m[df_m["年月"].dt.month == 12]["年月"]
     T0 = dec_dates.max() if not dec_dates.empty else max_d
     T1, T2, T3 = T0 - pd.DateOffset(years=1), T0 - pd.DateOffset(years=2), T0 - pd.DateOffset(years=3)
+    
+    # 逾放比(初) 的定義：最新月份往前推 12 個月
+    T_12M = max_d - pd.DateOffset(months=12)
 
     rows = []
     for s_no in df_m["社號"].unique():
@@ -335,7 +341,7 @@ def process_excel_final(file_bytes: bytes):
         # 1. 取得「分析判斷用」數據 (強制使用 12 月年底數據)
         M0, M1, M2, M3 = get_v(ms, "社員數", T0), get_v(ms, "社員數", T1), get_v(ms, "社員數", T2), get_v(ms, "社員數", T3)
         S0, S1, S2, S3 = get_v(ms, "股金", T0),   get_v(ms, "股金", T1),   get_v(ms, "股金", T2),   get_v(ms, "股金", T3)
-        R0, R1 = get_v(ls, "收支比", T0), get_v(ls, "收支比", T1)
+        R0, R1 = get_v(ls, "開支比", T0), get_v(ls, "開支比", T1)
         O0, O1 = get_v(ls, "逾期貸款", T0), get_v(ls, "逾期貸款", T1)
         eOvd_dec = get_v(ls, "逾放比", T0)
         eLoan_dec = get_v(ms, "貸放比", T0)
@@ -356,7 +362,11 @@ def process_excel_final(file_bytes: bytes):
         curr_S = get_v(ms, "股金", max_d)
         curr_eLoan = get_v(ms, "貸放比", max_d)
         curr_eOvd = get_v(ls, "逾放比", max_d)
-        curr_R = get_v(ls, "收支比", max_d)
+        curr_R = get_v(ls, "開支比", max_d)
+        
+        # 取得 12 個月前的逾放比
+        eOvd_12m = get_v(ls, "逾放比", T_12M)
+        
         # 顯示用的成長率改為「最新現況 vs 最近一個年底」
         memG_curr, shrG_curr = safe_div(curr_M-M0, M0), safe_div(curr_S-S0, S0)
 
@@ -370,10 +380,10 @@ def process_excel_final(file_bytes: bytes):
             "股金成長率(12M)": shrG_curr,
             "貸放比": curr_eLoan, 
             "儲蓄率": float(ms.iloc[-1]["儲蓄率"]),
-            "逾放比(初)": eOvd_dec, # 以最近年底為初值
+            "逾放比(初)": eOvd_12m, # 改為 12 個月前的數據
             "逾放比(末)": curr_eOvd, 
-            "收支比": curr_R,
-            "收支比(年)": R0,
+            "開支比": curr_R,
+            "開支比(年)": R0,
             "提撥率": float(ls.iloc[-1]["提撥率"]) if not ls.empty else 0.0,
             "_sM": M0, "_sS": S0
         })
@@ -511,7 +521,7 @@ with tab_ov:
     
     c1.metric("社員總數", f"{int(total_mem):,}", f"{safe_div(total_mem-prev_mem, prev_mem):.2%}")
     c2.metric("股金總額", f"${total_shr/1e8:.2f} 億", f"{safe_div(total_shr-prev_shr, prev_shr):.2%}")
-    c3.metric(f"{avg_label}收支比", f"{avg_src['收支比(年)'].mean():.2%}")
+    c3.metric(f"{avg_label}開支比", f"{avg_src['開支比(年)'].mean():.2%}")
     c4.metric(f"{avg_label}逾放比", f"{avg_src['逾放比(末)'].mean():.2%}")
     st.markdown("### 狀態雷達監控")
     def render_card(title, key, cls):
@@ -553,15 +563,15 @@ with tab_hc:
         st.markdown(f"#### 【{target}】 狀態：`{row['診斷狀態']}`")
         if row["高風險觸發原因"]:
             st.markdown(f'<div class="alert-box alert-error">🚩 觸發項目：{row["高風險觸發原因"]}</div>', unsafe_allow_html=True)
-        KEYS = ["貸放比", "儲蓄率", "逾放比(末)", "收支比", "社員成長率(12M)", "股金成長率(12M)"]
+        KEYS = ["貸放比", "儲蓄率", "逾放比(末)", "開支比", "社員成長率(12M)", "股金成長率(12M)"]
         
         # 決定平均值的計算來源與標籤
         avg_src = region_data if region_data is not None else data
         avg_label = "區域平均" if region_data is not None else "全台平均"
         
-        # 準備圖表數據：收支比改用年度 (年底) 數據
-        y_val_target = [row[k] if k != "收支比" else row["收支比(年)"] for k in KEYS]
-        y_val_avg = [avg_src[k].mean() if k != "收支比" else avg_src["收支比(年)"].mean() for k in KEYS]
+        # 準備圖表數據：開支比改用年度 (年底) 數據
+        y_val_target = [row[k] if k != "開支比" else row["開支比(年)"] for k in KEYS]
+        y_val_avg = [avg_src[k].mean() if k != "開支比" else avg_src["開支比(年)"].mean() for k in KEYS]
 
         fig_bar = go.Figure([
             go.Bar(name=target, x=KEYS, y=y_val_target, marker_color="#3B82F6"), 
@@ -570,13 +580,13 @@ with tab_hc:
         apply_chart_style(fig_bar, title=f"指標對比 ({avg_label})")
         st.plotly_chart(fig_bar, use_container_width=True)
         cols = st.columns(4)
-        for i, (k, v) in enumerate([("現有社員", f"{int(row['現有社員']):,}人"), ("現有股金", f"${row['現有股金']:,.0f}"), ("逾放比", f"{row['逾放比(末)']:.2%}"), ("收支比(年)", f"{row['收支比(年)']:.2%}")]): cols[i].metric(k, v)
+        for i, (k, v) in enumerate([("現有社員", f"{int(row['現有社員']):,}人"), ("現有股金", f"${row['現有股金']:,.0f}"), ("逾放比", f"{row['逾放比(末)']:.2%}"), ("開支比(年)", f"{row['開支比(年)']:.2%}")]): cols[i].metric(k, v)
 
 with tab_rp:
-    fmt = {"現有社員": "{:,}", "社員成長數(12M)": "{:+,.0f}", "現有股金": "${:,.0f}", "社員成長率(12M)": "{:.2%}", "股金成長率(12M)": "{:.2%}", "貸放比": "{:.1%}", "儲蓄率": "{:.1%}", "逾放比(初)": "{:.2%}", "逾放比(末)": "{:.2%}", "收支比": "{:.2%}", "提撥率": "{:.2%}"}
+    fmt = {"現有社員": "{:,}", "社員成長數(12M)": "{:+,.0f}", "現有股金": "${:,.0f}", "社員成長率(12M)": "{:.2%}", "股金成長率(12M)": "{:.2%}", "貸放比": "{:.1%}", "儲蓄率": "{:.1%}", "逾放比(初)": "{:.2%}", "逾放比(末)": "{:.2%}", "開支比": "{:.2%}", "提撥率": "{:.2%}"}
     def highlight(row): return ['background-color: #FEF2F2; color: #991B1B; font-weight: bold' if "高風險" in str(row["診斷狀態"]) else '' for _ in row]
     df_export = data.drop(columns=["_sM", "_sS"])
-    cols_order = ["社號", "社名", "區域", "診斷狀態", "高風險觸發原因", "現有社員", "社員成長數(12M)", "社員成長率(12M)", "現有股金", "股金成長率(12M)", "貸放比", "儲蓄率", "逾放比(初)", "逾放比(末)", "收支比", "提撥率"]
+    cols_order = ["社號", "社名", "區域", "診斷狀態", "高風險觸發原因", "現有社員", "社員成長數(12M)", "社員成長率(12M)", "現有股金", "股金成長率(12M)", "貸放比", "儲蓄率", "逾放比(初)", "逾放比(末)", "開支比", "提撥率"]
     
     # 透過 Pandas Styler 強制放大表格內文字，方便長輩閱讀
     styled_df = df_export[cols_order].style.apply(highlight, axis=1).format(fmt).set_properties(**{'font-size': '18px', 'padding': '10px'})
@@ -598,12 +608,12 @@ with tab_tr:
         reg_snos = region_data["社號"].unique()
         df_all_full = pd.merge(
             raw_df_m[raw_df_m["社號"].isin(reg_snos)], 
-            raw_df_l[raw_df_l["社號"].isin(reg_snos)][["年月", "社號", "逾放比", "收支比", "提撥率"]], 
+            raw_df_l[raw_df_l["社號"].isin(reg_snos)][["年月", "社號", "逾放比", "開支比", "提撥率"]], 
             on=["年月", "社號"], how="left"
         )
         avg_label = "區域平均"
     else:
-        df_all_full = pd.merge(df_m, df_l[["年月", "社號", "逾放比", "收支比", "提撥率"]], on=["年月", "社號"], how="left")
+        df_all_full = pd.merge(df_m, df_l[["年月", "社號", "逾放比", "開支比", "提撥率"]], on=["年月", "社號"], how="left")
         avg_label = "全台平均"
 
     col1, col2 = st.columns([3, 1])
@@ -621,22 +631,22 @@ with tab_tr:
             _, raw_df_m, raw_df_l, _ = st.session_state["preloaded_data"]
             sel_df = pd.merge(
                 raw_df_m[raw_df_m["社名"].isin(sel)], 
-                raw_df_l[raw_df_l["社名"].isin(sel)][["年月", "社號", "逾放比", "收支比", "提撥率"]], 
+                raw_df_l[raw_df_l["社名"].isin(sel)][["年月", "社號", "逾放比", "開支比", "提撥率"]], 
                 on=["年月", "社號"], how="left"
             )
             plot_dfs.append(sel_df)
             
         if show_avg:
             # 計算平均趨勢
-            avg_df = df_all_full.groupby("年月")[["社員數", "貸放比", "儲蓄率", "逾放比", "收支比", "提撥率"]].mean().reset_index()
+            avg_df = df_all_full.groupby("年月")[["社員數", "貸放比", "儲蓄率", "逾放比", "開支比", "提撥率"]].mean().reset_index()
             avg_df["社名"] = avg_label
             plot_dfs.append(avg_df)
             
         plot_df = pd.concat(plot_dfs, ignore_index=True)
 
         def trend(col, title, is_pct=True):
-            # 針對收支比，僅顯示每年 12 月底的資料（因為收入支出多於年末結算）
-            curr_df = plot_df[plot_df["年月"].dt.month == 12] if col == "收支比" else plot_df
+            # 針對開支比，僅顯示每年 12 月底的資料（因為收入支出多於年末結算）
+            curr_df = plot_df[plot_df["年月"].dt.month == 12] if col == "開支比" else plot_df
             fig = px.line(curr_df, x="年月", y=col, color="社名", markers=True, color_discrete_map={avg_label: "#1E293B"})
             
             # 將平均線設為粗虛線以利辨識
@@ -655,5 +665,5 @@ with tab_tr:
         with r3: trend("儲蓄率", "🏦 儲蓄率趨勢")
         with r4: trend("逾放比", "⚠️ 逾放比趨勢")
         r5, r6 = st.columns(2)
-        with r5: trend("收支比", "📈 收支比趨勢")
+        with r5: trend("開支比", "📈 開支比趨勢")
         with r6: trend("提撥率", "🛡️ 提撥率趨勢")
