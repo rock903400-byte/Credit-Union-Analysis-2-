@@ -526,9 +526,9 @@ with tab_ov:
     st.markdown("### 狀態雷達監控")
     def render_card(title, key, cls):
         names = data[data["診斷狀態"].str.contains(key)]["社名"].tolist()
-        st.markdown(f"<div class='stat-card'><div class='card-header {cls}'>{title}</div><div style='padding:10px;'>{' '.join([f'<span class=\"name-tag\">{n}</span>' for n in names]) if names else '無標的'}</div></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='stat-card'><div class='card-header {cls}'>{title}</div><div style='padding:10px;'>{' '.join([f'<span class=\"name-tag\">{n}</span>' for n in names]) if names else '無'}</div></div>", unsafe_allow_html=True)
     sc1, sc2, sc3, sc4 = st.columns(4)
-    with sc1: render_card("🚨 重點輔導", "高風險", "hdr-red")
+    with sc1: render_card("🚨 重點輔導", "重點輔導", "hdr-red")
     with sc2: render_card("⚠️ 緊繃", "流動性", "hdr-orange")
     with sc3: render_card("💤 閒置", "資金閒置", "hdr-blue")
     with sc4: render_card("✅ 穩健", "穩健", "hdr-green")
