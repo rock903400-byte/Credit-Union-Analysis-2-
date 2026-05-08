@@ -324,7 +324,7 @@ def process_excel_final(file_bytes: bytes):
     T0 = dec_dates.max() if not dec_dates.empty else max_d
     T1, T2, T3 = T0 - pd.DateOffset(years=1), T0 - pd.DateOffset(years=2), T0 - pd.DateOffset(years=3)
     
-    # 逾放比(初) 的定義：最新月份往前推 12 個月
+    # 逾放比(12M) 的定義：最新月份往前推 12 個月
     T_12M = max_d - pd.DateOffset(months=12)
 
     rows = []
@@ -380,7 +380,7 @@ def process_excel_final(file_bytes: bytes):
             "股金成長率(12M)": shrG_curr,
             "貸放比": curr_eLoan, 
             "儲蓄率": float(ms.iloc[-1]["儲蓄率"]),
-            "逾放比(初)": eOvd_12m, # 改為 12 個月前的數據
+            "逾放比(12M)": eOvd_12m, # 改為 12 個月前的數據
             "逾放比(末)": curr_eOvd, 
             "開支比": curr_R,
             "開支比(年)": R0,
@@ -528,7 +528,7 @@ with tab_ov:
         names = data[data["診斷狀態"].str.contains(key)]["社名"].tolist()
         st.markdown(f"<div class='stat-card'><div class='card-header {cls}'>{title}</div><div style='padding:10px;'>{' '.join([f'<span class=\"name-tag\">{n}</span>' for n in names]) if names else '無標的'}</div></div>", unsafe_allow_html=True)
     sc1, sc2, sc3, sc4 = st.columns(4)
-    with sc1: render_card("🚨 高風險", "高風險", "hdr-red")
+    with sc1: render_card("🚨 重點輔導", "高風險", "hdr-red")
     with sc2: render_card("⚠️ 緊繃", "流動性", "hdr-orange")
     with sc3: render_card("💤 閒置", "資金閒置", "hdr-blue")
     with sc4: render_card("✅ 穩健", "穩健", "hdr-green")
@@ -583,10 +583,10 @@ with tab_hc:
         for i, (k, v) in enumerate([("現有社員", f"{int(row['現有社員']):,}人"), ("現有股金", f"${row['現有股金']:,.0f}"), ("逾放比", f"{row['逾放比(末)']:.2%}"), ("開支比(年)", f"{row['開支比(年)']:.2%}")]): cols[i].metric(k, v)
 
 with tab_rp:
-    fmt = {"現有社員": "{:,}", "社員成長數(12M)": "{:+,.0f}", "現有股金": "${:,.0f}", "社員成長率(12M)": "{:.2%}", "股金成長率(12M)": "{:.2%}", "貸放比": "{:.1%}", "儲蓄率": "{:.1%}", "逾放比(初)": "{:.2%}", "逾放比(末)": "{:.2%}", "開支比": "{:.2%}", "提撥率": "{:.2%}"}
+    fmt = {"現有社員": "{:,}", "社員成長數(12M)": "{:+,.0f}", "現有股金": "${:,.0f}", "社員成長率(12M)": "{:.2%}", "股金成長率(12M)": "{:.2%}", "貸放比": "{:.1%}", "儲蓄率": "{:.1%}", "逾放比(12M)": "{:.2%}", "逾放比(末)": "{:.2%}", "開支比": "{:.2%}", "提撥率": "{:.2%}"}
     def highlight(row): return ['background-color: #FEF2F2; color: #991B1B; font-weight: bold' if "高風險" in str(row["診斷狀態"]) else '' for _ in row]
     df_export = data.drop(columns=["_sM", "_sS"])
-    cols_order = ["社號", "社名", "區域", "診斷狀態", "高風險觸發原因", "現有社員", "社員成長數(12M)", "社員成長率(12M)", "現有股金", "股金成長率(12M)", "貸放比", "儲蓄率", "逾放比(初)", "逾放比(末)", "開支比", "提撥率"]
+    cols_order = ["社號", "社名", "區域", "診斷狀態", "高風險觸發原因", "現有社員", "社員成長數(12M)", "社員成長率(12M)", "現有股金", "股金成長率(12M)", "貸放比", "儲蓄率", "逾放比(12M)", "逾放比(末)", "開支比", "提撥率"]
     
     # 透過 Pandas Styler 強制放大表格內文字，方便長輩閱讀
     styled_df = df_export[cols_order].style.apply(highlight, axis=1).format(fmt).set_properties(**{'font-size': '18px', 'padding': '10px'})
